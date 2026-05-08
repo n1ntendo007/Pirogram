@@ -7,6 +7,7 @@ import {
   CheckCheck,
   Loader2,
   LogOut,
+  Moon,
   Mic,
   Paperclip,
   Phone,
@@ -16,6 +17,8 @@ import {
   Send,
   Smartphone,
   TestTube2,
+  Trash2,
+  Sun,
   Video,
   VideoOff,
   X
@@ -26,8 +29,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 type User = {
   id: string;
   username: string;
+  login?: string;
   displayName: string;
   avatarData: string | null;
+  createdAt?: string;
 };
 
 type Message = {
@@ -157,6 +162,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [sending, setSending] = useState(false);
   const [loadingChats, setLoadingChats] = useState(true);
   const [mobileListOpen, setMobileListOpen] = useState(true);
+  const [activeTab, setActiveTab] = useState<"chats" | "calls" | "settings">("chats");
+  const [editingChats, setEditingChats] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
   const [activeCall, setActiveCall] = useState<CallSession | null>(null);
   const [callNotice, setCallNotice] = useState("");
   const [testingPush, setTestingPush] = useState(false);
@@ -183,6 +191,16 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   useEffect(() => {
     activeCallRef.current = activeCall;
   }, [activeCall]);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("pirogram_theme");
+    if (saved === "dark" || saved === "light") setTheme(saved);
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem("pirogram_theme", theme);
+  }, [theme]);
 
   useEffect(() => {
     loadChats();
@@ -500,6 +518,34 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     router.replace("/");
   }
 
+  async function deleteChatForEveryone(chatId: string, chatType?: string) {
+    if (!chatId || chatType === "SAVED") return;
+    const confirmed = window.confirm("Удалить этот чат у вас и у собеседника? Все сообщения, фото, видео и записи звонков исчезнут у обоих. Это действие нельзя отменить.");
+    if (!confirmed) return;
+
+    const response = await fetch(`/api/chats/${encodeURIComponent(chatId)}`, {
+      method: "DELETE",
+      credentials: "include"
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      alert(data?.error ?? "Не удалось удалить чат.");
+      return;
+    }
+
+    const nextChats = chats.filter((chat) => chat.id !== chatId);
+    setChats(nextChats);
+    if (activeChatId === chatId) {
+      setActiveChatId(nextChats[0]?.id ?? "");
+      setMessages([]);
+      setActiveCall(null);
+      cleanupCallMedia();
+      setMobileListOpen(true);
+    }
+    if (!nextChats.some((chat) => chat.type !== "SAVED")) setEditingChats(false);
+  }
+
   async function testMedia(kind: "AUDIO" | "VIDEO") {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: kind === "VIDEO" });
@@ -755,88 +801,181 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const showChat = !mobileListOpen || typeof window === "undefined";
 
   return (
-    <main className="h-dvh w-full overflow-hidden bg-[#dfe8f2] text-[#111827]">
+    <main className="tg-main h-dvh w-full overflow-hidden bg-[#dfe8f2] text-[#111827]">
       <div className="mx-auto flex h-full max-w-[1500px] bg-[#f6f8fb] shadow-2xl shadow-slate-900/10">
-        <aside className={`${showSidebar ? "flex" : "hidden"} h-full w-full shrink-0 flex-col border-r border-slate-200 bg-white lg:flex lg:w-[390px]`}>
-          <div className="border-b border-slate-200 bg-[#f8fbff]/95 px-4 pb-3 pt-[max(14px,env(safe-area-inset-top))] backdrop-blur-xl">
-            <div className="mb-3 flex h-11 items-center justify-between">
-              <button type="button" className="rounded-full px-1 text-[15px] font-medium text-[#229ed9] active:opacity-60">Edit</button>
-              <h1 className="text-[18px] font-bold tracking-[-0.02em] text-slate-950">Chats</h1>
-              <button onClick={logout} className="grid h-9 w-9 place-items-center rounded-full text-[#229ed9] active:bg-slate-100" aria-label="Выйти">
-                <LogOut size={19} />
-              </button>
-            </div>
-
-            <label className="flex h-10 items-center gap-2 rounded-xl bg-[#eef2f7] px-3 text-[15px] text-slate-500 shadow-inner shadow-slate-200/50 focus-within:ring-2 focus-within:ring-[#229ed9]/20">
-              <Search size={17} />
-              <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search or @username" className="min-w-0 flex-1 bg-transparent text-slate-900 outline-none placeholder:text-slate-400" autoCapitalize="none" />
-              {searchQuery ? <button type="button" onClick={() => { setSearchQuery(""); setSearchResults([]); }} className="grid h-5 w-5 place-items-center rounded-full bg-slate-300 text-white"><X size={13} /></button> : null}
-            </label>
-
-            {searchQuery.trim().length >= 2 ? (
-              <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
-                {searching ? <p className="px-3 py-3 text-sm text-slate-500">Ищу пользователя...</p> : null}
-                {searchResults.map((user) => (
-                  <button key={user.id} type="button" onClick={() => void startPrivateChat(user.username)} className="flex w-full items-center gap-3 border-b border-slate-100 px-3 py-2.5 text-left last:border-b-0 active:bg-[#eef7fd]">
-                    {user.avatarData ? <img src={user.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-[#57c4ff] to-[#1e8fd0] text-sm font-bold text-white">{avatarLabel(user.displayName || user.username)}</div>}
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[15px] font-semibold text-slate-950">{user.displayName}</span>
-                      <span className="block truncate text-[13px] text-[#229ed9]">@{user.username}</span>
-                    </span>
-                    <span className="rounded-full bg-[#229ed9]/10 px-2.5 py-1 text-xs font-semibold text-[#229ed9]">Chat</span>
+        <aside className={`tg-sidebar ${showSidebar ? "flex" : "hidden"} h-full w-full shrink-0 flex-col border-r border-slate-200 bg-white lg:flex lg:w-[390px]`}>
+          <div className="tg-topbar border-b border-slate-200 bg-[#f8fbff]/95 px-4 pb-3 pt-[max(14px,env(safe-area-inset-top))] backdrop-blur-xl">
+            {activeTab === "chats" ? (
+              <>
+                <div className="mb-3 flex h-11 items-center justify-between">
+                  <button type="button" onClick={() => setEditingChats((value) => !value)} className={`rounded-full px-1 text-[15px] font-medium active:opacity-60 ${editingChats ? "text-red-500" : "text-[#229ed9]"}`}>
+                    {editingChats ? "Done" : "Edit"}
                   </button>
-                ))}
-                {!searching && !searchResults.length ? <p className="px-3 py-3 text-sm text-slate-500">Пользователи не найдены</p> : null}
-              </div>
-            ) : null}
-            {searchError ? <p className="mt-2 rounded-xl bg-red-50 p-3 text-xs text-red-600">{searchError}</p> : null}
-          </div>
+                  <h1 className="text-[18px] font-bold tracking-[-0.02em] text-slate-950">Chats</h1>
+                  <button type="button" onClick={() => { setActiveTab("settings"); setMobileListOpen(true); }} className="grid h-9 w-9 place-items-center rounded-full text-[#229ed9] active:bg-slate-100" aria-label="Настройки">
+                    <Smartphone size={19} />
+                  </button>
+                </div>
 
-          <div className="no-scrollbar flex-1 overflow-y-auto bg-white">
-            {loadingChats ? <p className="p-4 text-sm text-slate-500">Загружаю чаты...</p> : null}
-            {chats.map((chat) => {
-              const lastMessage = chat.messages?.[0];
-              const active = chat.id === activeChatId;
-              const mine = lastMessage?.senderId === currentUser.id;
-              return (
-                <button
-                  key={chat.id}
-                  onClick={() => {
-                    setActiveChatId(chat.id);
-                    setMobileListOpen(false);
-                  }}
-                  className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${active ? "bg-[#e8f4fc]" : "active:bg-slate-100 lg:hover:bg-slate-50"}`}
-                >
-                  {chat.avatarData ? <img src={chat.avatarData} alt="" className="h-[58px] w-[58px] shrink-0 rounded-full object-cover" /> : <div className="grid h-[58px] w-[58px] shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-xl font-bold text-white shadow-sm">{avatarLabel(chat.title)}</div>}
-                  <div className="min-w-0 flex-1 border-b border-slate-100 pb-2.5">
-                    <div className="mb-0.5 flex items-center gap-3">
-                      <p className="min-w-0 flex-1 truncate text-[16px] font-semibold tracking-[-0.01em] text-slate-950">{chat.title || "Чат"}</p>
-                      <span className="shrink-0 text-[12px] text-slate-400">{timeLabel(lastMessage?.createdAt || chat.updatedAt)}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="min-w-0 flex-1 truncate text-[14px] leading-5 text-slate-500">
-                        {mine ? (
-                          <span className="mr-1 inline-flex align-middle text-[#229ed9]">{lastMessage?.readByOthers ? <CheckCheck size={15} /> : <Check size={15} />}</span>
-                        ) : null}
-                        <span>{chatPreview(lastMessage)}</span>
-                      </div>
-                      {chat.unreadCount ? <span className="grid min-w-6 place-items-center rounded-full bg-[#229ed9] px-1.5 py-0.5 text-[11px] font-bold text-white">{chat.unreadCount > 99 ? "99+" : chat.unreadCount}</span> : null}
-                    </div>
+                <label className="tg-search flex h-10 items-center gap-2 rounded-xl bg-[#eef2f7] px-3 text-[15px] text-slate-500 shadow-inner shadow-slate-200/50 focus-within:ring-2 focus-within:ring-[#229ed9]/20">
+                  <Search size={17} />
+                  <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search or @username" className="min-w-0 flex-1 bg-transparent text-slate-900 outline-none placeholder:text-slate-400" autoCapitalize="none" />
+                  {searchQuery ? <button type="button" onClick={() => { setSearchQuery(""); setSearchResults([]); }} className="grid h-5 w-5 place-items-center rounded-full bg-slate-300 text-white"><X size={13} /></button> : null}
+                </label>
+
+                {searchQuery.trim().length >= 2 ? (
+                  <div className="tg-popover mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
+                    {searching ? <p className="px-3 py-3 text-sm text-slate-500">Ищу пользователя...</p> : null}
+                    {searchResults.map((user) => (
+                      <button key={user.id} type="button" onClick={() => void startPrivateChat(user.username)} className="flex w-full items-center gap-3 border-b border-slate-100 px-3 py-2.5 text-left last:border-b-0 active:bg-[#eef7fd]">
+                        {user.avatarData ? <img src={user.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-[#57c4ff] to-[#1e8fd0] text-sm font-bold text-white">{avatarLabel(user.displayName || user.username)}</div>}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[15px] font-semibold text-slate-950">{user.displayName}</span>
+                          <span className="block truncate text-[13px] text-[#229ed9]">@{user.username}</span>
+                        </span>
+                        <span className="rounded-full bg-[#229ed9]/10 px-2.5 py-1 text-xs font-semibold text-[#229ed9]">Chat</span>
+                      </button>
+                    ))}
+                    {!searching && !searchResults.length ? <p className="px-3 py-3 text-sm text-slate-500">Пользователи не найдены</p> : null}
                   </div>
-                </button>
-              );
-            })}
+                ) : null}
+                {searchError ? <p className="mt-2 rounded-xl bg-red-50 p-3 text-xs text-red-600">{searchError}</p> : null}
+              </>
+            ) : activeTab === "settings" ? (
+              <div className="flex h-11 items-center justify-between">
+                <button type="button" onClick={() => setActiveTab("chats")} className="rounded-full px-1 text-[15px] font-medium text-[#229ed9] active:opacity-60">Chats</button>
+                <h1 className="text-[18px] font-bold tracking-[-0.02em] text-slate-950">Settings</h1>
+                <span className="w-12" />
+              </div>
+            ) : (
+              <div className="flex h-11 items-center justify-between">
+                <button type="button" onClick={() => setActiveTab("chats")} className="rounded-full px-1 text-[15px] font-medium text-[#229ed9] active:opacity-60">Chats</button>
+                <h1 className="text-[18px] font-bold tracking-[-0.02em] text-slate-950">Calls</h1>
+                <span className="w-12" />
+              </div>
+            )}
           </div>
 
-          <div className="grid h-[72px] shrink-0 grid-cols-3 border-t border-slate-200 bg-[#f8fbff]/95 px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-2 text-[11px] font-medium text-slate-400 backdrop-blur-xl lg:hidden">
-            <button className="flex flex-col items-center gap-1 rounded-2xl py-1 active:bg-slate-100"><Phone size={21} /> Calls</button>
-            <button className="flex flex-col items-center gap-1 rounded-2xl py-1 text-[#229ed9] active:bg-slate-100"><Bell size={21} /> Chats</button>
-            <button className="flex flex-col items-center gap-1 rounded-2xl py-1 active:bg-slate-100"><Smartphone size={21} /> Settings</button>
+          {activeTab === "chats" ? (
+            <div className="tg-list no-scrollbar flex-1 overflow-y-auto bg-white">
+              {loadingChats ? <p className="p-4 text-sm text-slate-500">Загружаю чаты...</p> : null}
+              {chats.map((chat) => {
+                const lastMessage = chat.messages?.[0];
+                const active = chat.id === activeChatId;
+                const mine = lastMessage?.senderId === currentUser.id;
+                return (
+                  <div key={chat.id} className={`tg-chat-row flex w-full items-center gap-2 px-3 py-1.5 transition ${active ? "bg-[#e8f4fc]" : "active:bg-slate-100 lg:hover:bg-slate-50"}`}>
+                    {editingChats && chat.type !== "SAVED" ? (
+                      <button
+                        type="button"
+                        onClick={() => void deleteChatForEveryone(chat.id, chat.type)}
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-red-500 text-white shadow-sm active:scale-95"
+                        aria-label="Удалить чат у обоих"
+                      >
+                        <Trash2 size={17} />
+                      </button>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (editingChats && chat.type !== "SAVED") {
+                          void deleteChatForEveryone(chat.id, chat.type);
+                          return;
+                        }
+                        setActiveChatId(chat.id);
+                        setMobileListOpen(false);
+                      }}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    >
+                      {chat.avatarData ? <img src={chat.avatarData} alt="" className="h-[58px] w-[58px] shrink-0 rounded-full object-cover" /> : <div className="grid h-[58px] w-[58px] shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-xl font-bold text-white shadow-sm">{avatarLabel(chat.title)}</div>}
+                      <div className="min-w-0 flex-1 border-b border-slate-100 pb-2.5">
+                        <div className="mb-0.5 flex items-center gap-3">
+                          <p className="min-w-0 flex-1 truncate text-[16px] font-semibold tracking-[-0.01em] text-slate-950">{chat.title || "Чат"}</p>
+                          <span className="shrink-0 text-[12px] text-slate-400">{timeLabel(lastMessage?.createdAt || chat.updatedAt)}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="min-w-0 flex-1 truncate text-[14px] leading-5 text-slate-500">
+                            {mine ? (
+                              <span className="mr-1 inline-flex align-middle text-[#229ed9]">{lastMessage?.readByOthers ? <CheckCheck size={15} /> : <Check size={15} />}</span>
+                            ) : null}
+                            <span>{chatPreview(lastMessage)}</span>
+                          </div>
+                          {chat.unreadCount ? <span className="grid min-w-6 place-items-center rounded-full bg-[#229ed9] px-1.5 py-0.5 text-[11px] font-bold text-white">{chat.unreadCount > 99 ? "99+" : chat.unreadCount}</span> : null}
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : activeTab === "settings" ? (
+            <div className="tg-settings no-scrollbar flex-1 overflow-y-auto bg-[#f2f6fb] p-4">
+              <div className="mb-4 rounded-3xl bg-white p-4 shadow-sm">
+                <div className="flex items-center gap-4">
+                  {currentUser.avatarData ? <img src={currentUser.avatarData} alt="" className="h-16 w-16 rounded-full object-cover" /> : <div className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-2xl font-bold text-white">{avatarLabel(currentUser.displayName)}</div>}
+                  <div className="min-w-0">
+                    <p className="truncate text-xl font-bold text-slate-950">{currentUser.displayName}</p>
+                    <p className="truncate text-sm text-[#229ed9]">@{currentUser.username}</p>
+                    {currentUser.login ? <p className="truncate text-xs text-slate-500">Логин: {currentUser.login}</p> : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-4 overflow-hidden rounded-3xl bg-white shadow-sm">
+                <div className="border-b border-slate-100 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-950">Уведомления</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">{pushStatus}</p>
+                  {installTip ? <p className="mt-1 text-xs leading-5 text-slate-500">{installTip}</p> : null}
+                </div>
+                <button onClick={enablePush} disabled={pushBusy || !pushReady} className="flex w-full items-center justify-between px-4 py-3 text-left active:bg-slate-50 disabled:opacity-50">
+                  <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Bell size={18} className="text-[#229ed9]" />{pushBusy ? "Подключаю push..." : "Включить уведомления"}</span>
+                  <span className="text-sm text-[#229ed9]">Открыть</span>
+                </button>
+                <button onClick={sendPushTest} disabled={testingPush || !pushReady} className="flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left active:bg-slate-50 disabled:opacity-50">
+                  <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><TestTube2 size={18} className="text-[#229ed9]" />Проверить push</span>
+                  <span className="text-sm text-[#229ed9]">{testingPush ? "Отправляю..." : "Тест"}</span>
+                </button>
+              </div>
+
+              <div className="mb-4 overflow-hidden rounded-3xl bg-white shadow-sm">
+                <div className="border-b border-slate-100 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-950">Оформление</p>
+                  <p className="mt-1 text-xs text-slate-500">Выбери светлую или тёмную тему.</p>
+                </div>
+                <button onClick={() => setTheme("light")} className="flex w-full items-center justify-between px-4 py-3 text-left active:bg-slate-50">
+                  <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Sun size={18} className="text-[#229ed9]" />Светлая тема</span>
+                  {theme === "light" ? <Check size={18} className="text-[#229ed9]" /> : null}
+                </button>
+                <button onClick={() => setTheme("dark")} className="flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left active:bg-slate-50">
+                  <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Moon size={18} className="text-[#229ed9]" />Тёмная тема</span>
+                  {theme === "dark" ? <Check size={18} className="text-[#229ed9]" /> : null}
+                </button>
+              </div>
+
+              <div className="overflow-hidden rounded-3xl bg-white shadow-sm">
+                <button onClick={logout} className="flex w-full items-center justify-between px-4 py-3 text-left active:bg-red-50">
+                  <span className="inline-flex items-center gap-3 text-[15px] font-semibold text-red-500"><LogOut size={18} />Выйти из аккаунта</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="tg-settings flex flex-1 flex-col items-center justify-center bg-[#f2f6fb] p-6 text-center">
+              <Phone size={38} className="mb-3 text-[#229ed9]" />
+              <p className="text-lg font-bold text-slate-950">Звонки</p>
+              <p className="mt-2 max-w-xs text-sm leading-6 text-slate-500">История звонков появится позже. Сейчас звонки запускаются прямо из открытого чата.</p>
+            </div>
+          )}
+
+          <div className="tg-tabbar grid h-[72px] shrink-0 grid-cols-3 border-t border-slate-200 bg-[#f8fbff]/95 px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-2 text-[11px] font-medium text-slate-400 backdrop-blur-xl lg:hidden">
+            <button onClick={() => { setActiveTab("calls"); setMobileListOpen(true); }} className={`flex flex-col items-center gap-1 rounded-2xl py-1 active:bg-slate-100 ${activeTab === "calls" ? "text-[#229ed9]" : ""}`}><Phone size={21} /> Calls</button>
+            <button onClick={() => { setActiveTab("chats"); setMobileListOpen(true); }} className={`flex flex-col items-center gap-1 rounded-2xl py-1 active:bg-slate-100 ${activeTab === "chats" ? "text-[#229ed9]" : ""}`}><Bell size={21} /> Chats</button>
+            <button onClick={() => { setActiveTab("settings"); setMobileListOpen(true); }} className={`flex flex-col items-center gap-1 rounded-2xl py-1 active:bg-slate-100 ${activeTab === "settings" ? "text-[#229ed9]" : ""}`}><Smartphone size={21} /> Settings</button>
           </div>
         </aside>
 
-        <section className={`${showChat ? "flex" : "hidden"} h-full min-w-0 flex-1 flex-col bg-[#e6edf5] lg:flex`}>
-          <header className="flex h-[64px] shrink-0 items-center gap-3 border-b border-slate-200 bg-white/95 px-3 backdrop-blur-xl sm:px-4">
+        <section className={`tg-chat-panel ${showChat ? "flex" : "hidden"} h-full min-w-0 flex-1 flex-col bg-[#e6edf5] lg:flex`}>
+          <header className="tg-chat-header sticky top-0 z-30 flex min-h-[64px] shrink-0 items-center gap-3 border-b border-slate-200 bg-white/95 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+0.55rem)] backdrop-blur-xl sm:px-4 lg:min-h-[64px] lg:py-0">
             <button onClick={() => setMobileListOpen(true)} className="grid h-10 w-10 place-items-center rounded-full text-[#229ed9] active:bg-slate-100 lg:hidden">
               <ArrowLeft size={21} />
             </button>
@@ -854,16 +993,6 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               </button>
             </div>
           </header>
-
-          {installTip || pushStatus ? (
-            <div className="border-b border-slate-200 bg-[#f8fbff] px-4 py-2">
-              <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-2 text-[12px] text-slate-500">
-                <button onClick={enablePush} disabled={pushBusy || !pushReady} className="inline-flex items-center gap-1.5 rounded-full bg-[#229ed9]/10 px-3 py-1.5 font-semibold text-[#229ed9] disabled:opacity-50"><Bell size={13} />{pushBusy ? "Подключаю..." : pushStatus}</button>
-                <button onClick={sendPushTest} disabled={testingPush || !pushReady} className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 font-semibold text-slate-600 disabled:opacity-50"><TestTube2 size={13} />Тест push</button>
-                {installTip ? <span className="hidden sm:inline">{installTip}</span> : null}
-              </div>
-            </div>
-          ) : null}
 
           {activeCall ? (
             <div className="border-b border-slate-200 bg-white px-4 py-3">

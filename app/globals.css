@@ -79,3 +79,93 @@ button:disabled {
   0% { opacity: 0.8; transform: scale(0.96); }
   100% { opacity: 0; transform: scale(1.18); }
 }
+
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  background: #17212b;
+}
+
+html[data-theme="dark"] body {
+  background: #17212b !important;
+  color: #e9edef !important;
+}
+
+html[data-theme="dark"] .tg-main,
+html[data-theme="dark"] .tg-chat-panel {
+  background: #17212b !important;
+  color: #e9edef !important;
+}
+
+html[data-theme="dark"] .tg-sidebar,
+html[data-theme="dark"] .tg-list,
+html[data-theme="dark"] .tg-popover {
+  background: #111b21 !important;
+  border-color: rgba(255,255,255,.08) !important;
+  color: #e9edef !important;
+}
+
+html[data-theme="dark"] .tg-topbar,
+html[data-theme="dark"] .tg-chat-header,
+html[data-theme="dark"] .tg-compose,
+html[data-theme="dark"] .tg-tabbar {
+  background: rgba(32,44,52,.96) !important;
+  border-color: rgba(255,255,255,.08) !important;
+  color: #e9edef !important;
+}
+
+html[data-theme="dark"] .tg-search,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] input {
+  background: #17212b !important;
+  color: #e9edef !important;
+  border-color: rgba(255,255,255,.08) !important;
+}
+
+html[data-theme="dark"] .tg-message-area {
+  background: linear-gradient(180deg, #0f1a22 0%, #17212b 100%) !important;
+}
+
+html[data-theme="dark"] .tg-chat-row {
+  color: #e9edef !important;
+}
+
+html[data-theme="dark"] .tg-chat-row:hover {
+  background: rgba(255,255,255,.04) !important;
+}
+
+html[data-theme="dark"] .tg-settings {
+  background: #17212b !important;
+}
+
+html[data-theme="dark"] .tg-settings > div,
+html[data-theme="dark"] .tg-settings .bg-white,
+html[data-theme="dark"] .tg-settings button {
+  background-color: #202c33 !important;
+  border-color: rgba(255,255,255,.08) !important;
+}
+
+html[data-theme="dark"] .text-slate-950,
+html[data-theme="dark"] .text-slate-900 {
+  color: #e9edef !important;
+}
+
+html[data-theme="dark"] .text-slate-500,
+html[data-theme="dark"] .text-slate-400 {
+  color: #8796a1 !important;
+}
+
+html[data-theme="dark"] .border-slate-100,
+html[data-theme="dark"] .border-slate-200 {
+  border-color: rgba(255,255,255,.08) !important;
+}
+
+html[data-theme="dark"] .bg-white {
+  background-color: #202c33 !important;
+}
+
+html[data-theme="dark"] .bg-slate-50,
+html[data-theme="dark"] .active\:bg-slate-50:active,
+html[data-theme="dark"] .active\:bg-slate-100:active {
+  background-color: rgba(255,255,255,.06) !important;
+}

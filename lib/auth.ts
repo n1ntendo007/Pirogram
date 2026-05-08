@@ -10,6 +10,7 @@ export async function getCurrentUser() {
     select: {
       id: true,
       username: true,
+      login: true,
       displayName: true,
       avatarData: true,
       createdAt: true
