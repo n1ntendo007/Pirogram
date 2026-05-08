@@ -5,5 +5,13 @@ import { getCurrentUser } from "@/lib/auth";
 export default async function ChatPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/");
-  return <ChatClient currentUser={user} />;
+
+  return (
+    <ChatClient
+      currentUser={{
+        ...user,
+        createdAt: user.createdAt.toISOString()
+      }}
+    />
+  );
 }
