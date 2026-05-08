@@ -64,16 +64,16 @@ export default function AuthClient() {
 
   return (
     <main className="safe-screen relative mx-auto grid min-h-dvh w-full place-items-center overflow-hidden px-4 py-8">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_0%,rgba(245,158,11,.28),transparent_30%),radial-gradient(circle_at_80%_25%,rgba(234,179,8,.14),transparent_32%),linear-gradient(135deg,#050505,#11100b_45%,#050505)]" />
-      <section className="relative w-full max-w-md overflow-hidden rounded-[2.2rem] border border-yellow-300/15 bg-black/55 p-5 shadow-[0_28px_120px_rgba(0,0,0,.75),0_0_70px_rgba(245,158,11,.12)] backdrop-blur-2xl sm:p-7">
-        <div className="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-yellow-400/10 blur-3xl" />
-        <div className="absolute -bottom-20 -left-16 h-48 w-48 rounded-full bg-amber-600/10 blur-3xl" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_0%,rgba(59,130,246,.28),transparent_30%),radial-gradient(circle_at_82%_24%,rgba(14,165,233,.18),transparent_32%),linear-gradient(135deg,#04111f,#0b1f35_45%,#06101b)]" />
+      <section className="relative w-full max-w-md overflow-hidden rounded-[2.2rem] border border-sky-300/15 bg-slate-950/60 p-5 shadow-[0_28px_120px_rgba(0,0,0,.78),0_0_70px_rgba(56,189,248,.10)] backdrop-blur-2xl sm:p-7">
+        <div className="absolute -right-16 -top-16 h-40 w-40 rounded-full bg-sky-400/12 blur-3xl" />
+        <div className="absolute -bottom-20 -left-16 h-48 w-48 rounded-full bg-blue-600/12 blur-3xl" />
 
         <div className="relative text-center">
-          <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-[1.35rem] bg-gradient-to-br from-yellow-300 via-amber-500 to-yellow-700 text-3xl font-black text-black shadow-2xl shadow-amber-950/60">
+          <div className="mx-auto mb-5 grid h-16 w-16 place-items-center rounded-[1.35rem] bg-gradient-to-br from-sky-300 via-blue-500 to-indigo-700 text-3xl font-black text-white shadow-2xl shadow-sky-950/60">
             P
           </div>
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-yellow-300/15 bg-yellow-300/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-yellow-200">
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-sky-300/15 bg-sky-400/10 px-3 py-1 text-[11px] font-black uppercase tracking-[0.22em] text-sky-200">
             <Zap size={13} /> Pirogram
           </div>
           <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">
@@ -86,9 +86,9 @@ export default function AuthClient() {
           </p>
         </div>
 
-        <div className="relative my-6 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-1">
-          <button type="button" onClick={() => switchMode("login")} className={`rounded-xl px-4 py-3 text-sm font-black transition ${mode === "login" ? "bg-yellow-300 text-black shadow-lg shadow-yellow-950/30" : "text-zinc-400 active:bg-white/[0.06]"}`}>Войти</button>
-          <button type="button" onClick={() => switchMode("register")} className={`rounded-xl px-4 py-3 text-sm font-black transition ${mode === "register" ? "bg-yellow-300 text-black shadow-lg shadow-yellow-950/30" : "text-zinc-400 active:bg-white/[0.06]"}`}>Регистрация</button>
+        <div className="relative my-6 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-slate-900/70 p-1">
+          <button type="button" onClick={() => switchMode("login")} className={`rounded-xl px-4 py-3 text-sm font-black transition ${mode === "login" ? "bg-sky-400 text-slate-950 shadow-lg shadow-sky-950/30" : "text-slate-400 active:bg-white/[0.06]"}`}>Войти</button>
+          <button type="button" onClick={() => switchMode("register")} className={`rounded-xl px-4 py-3 text-sm font-black transition ${mode === "register" ? "bg-sky-400 text-slate-950 shadow-lg shadow-sky-950/30" : "text-slate-400 active:bg-white/[0.06]"}`}>Регистрация</button>
         </div>
 
         <form className="relative space-y-3" onSubmit={onSubmit}>
@@ -103,7 +103,7 @@ export default function AuthClient() {
 
           <div className="relative">
             <Input value={password} onChange={(event) => setPassword(event.target.value)} type={showPassword ? "text" : "password"} placeholder={mode === "register" ? "Пароль минимум 8 символов" : "Пароль"} autoComplete={mode === "register" ? "new-password" : "current-password"} required />
-            <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-xl p-2 text-zinc-400 active:bg-white/10" aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}>
+            <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-xl p-2 text-slate-400 active:bg-white/10" aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}>
               {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
             </button>
           </div>

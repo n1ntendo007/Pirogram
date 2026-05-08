@@ -6,7 +6,7 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
     <input
       {...props}
       className={clsx(
-        "min-h-12 w-full rounded-2xl border border-yellow-300/15 bg-white/[0.055] px-4 py-3 text-sm text-zinc-50 outline-none placeholder:text-zinc-500 transition focus:border-yellow-300/80 focus:bg-yellow-300/[0.07]",
+        "min-h-12 w-full rounded-2xl border border-sky-300/15 bg-slate-900/70 px-4 py-3 text-sm text-slate-50 outline-none placeholder:text-slate-500 transition focus:border-sky-300/80 focus:bg-sky-400/[0.08] focus:shadow-[0_0_0_4px_rgba(56,189,248,.08)]",
         className
       )}
     />
