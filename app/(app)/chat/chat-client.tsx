@@ -19,6 +19,8 @@ import {
   TestTube2,
   Trash2,
   Sun,
+  Volume2,
+  VolumeX,
   Video,
   VideoOff,
   X
@@ -92,6 +94,10 @@ type SignalIce = {
   sdpMid: string | null;
   sdpMLineIndex: number | null;
   usernameFragment?: string | null;
+};
+
+type AudioOutputElement = HTMLAudioElement & {
+  setSinkId?: (sinkId: string) => Promise<void>;
 };
 
 const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
@@ -173,10 +179,13 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [callMuted, setCallMuted] = useState(false);
   const [callCameraOff, setCallCameraOff] = useState(false);
+  const [speakerOn, setSpeakerOn] = useState(false);
+  const [audioRouteStatus, setAudioRouteStatus] = useState("Обычный звук");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
@@ -188,6 +197,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
   const activeChat = useMemo(() => chats.find((chat) => chat.id === activeChatId), [chats, activeChatId]);
   const lastMessageDate = messages[messages.length - 1]?.createdAt;
+  const isIncomingRinging = Boolean(activeCall && activeCall.callerId !== currentUser.id && activeCall.status === "RINGING");
+  const isCallConnected = Boolean(activeCall && activeCall.status === "ACCEPTED");
 
   useEffect(() => {
     activeCallRef.current = activeCall;
@@ -269,16 +280,24 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   }, [messages.length, activeChatId]);
 
   useEffect(() => {
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = localStream;
-    }
-  }, [localStream]);
+    if (!localVideoRef.current) return;
+    localVideoRef.current.srcObject = localStream;
+    if (localStream) void localVideoRef.current.play().catch(() => undefined);
+  }, [localStream, activeCall?.id, activeCall?.status]);
 
   useEffect(() => {
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = remoteStream;
+      if (remoteStream) void remoteVideoRef.current.play().catch(() => undefined);
     }
-  }, [remoteStream]);
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = remoteStream;
+      remoteAudioRef.current.volume = 1;
+      remoteAudioRef.current.muted = false;
+      if (remoteStream) void remoteAudioRef.current.play().catch(() => undefined);
+    }
+    if (remoteStream) void applyAudioRoute(speakerOn);
+  }, [remoteStream, activeCall?.id, activeCall?.status, speakerOn]);
 
   useEffect(() => {
     return () => {
@@ -571,21 +590,47 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     localStreamRef.current = null;
     remoteStreamRef.current?.getTracks().forEach((track) => track.stop());
     remoteStreamRef.current = null;
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+    if (localVideoRef.current) localVideoRef.current.srcObject = null;
     setLocalStream(null);
     setRemoteStream(null);
     setCallWorking(false);
     setCallMuted(false);
     setCallCameraOff(false);
+    setSpeakerOn(false);
+    setAudioRouteStatus("Обычный звук");
     addedIceKeysRef.current = new Set();
     pendingLocalIceRef.current = [];
     signalStartedRef.current = null;
     callRoleRef.current = null;
   }
 
+  function mediaConstraints(kind: "AUDIO" | "VIDEO"): MediaStreamConstraints {
+    return {
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
+      video: kind === "VIDEO" ? {
+        facingMode: "user",
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      } : false
+    };
+  }
+
   async function ensureLocalMedia(kind: "AUDIO" | "VIDEO") {
     const existing = localStreamRef.current;
     if (existing) return existing;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: kind === "VIDEO" });
+    const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints(kind));
+    stream.getAudioTracks().forEach((track) => {
+      track.enabled = true;
+    });
+    stream.getVideoTracks().forEach((track) => {
+      track.enabled = true;
+    });
     localStreamRef.current = stream;
     setLocalStream(stream);
     return stream;
@@ -620,19 +665,36 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     setRemoteStream(remote);
 
     pc.ontrack = (event) => {
-      for (const track of event.streams[0].getTracks()) {
+      const streamTracks = event.streams[0]?.getTracks() ?? [];
+      const tracks = streamTracks.length ? streamTracks : [event.track];
+      for (const track of tracks) {
         if (!remote.getTracks().some((item) => item.id === track.id)) remote.addTrack(track);
       }
+      setRemoteStream(remote);
+      window.setTimeout(() => {
+        void remoteAudioRef.current?.play().catch(() => undefined);
+        void remoteVideoRef.current?.play().catch(() => undefined);
+      }, 120);
     };
 
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
       if (state === "connected") {
         setCallWorking(true);
-        setCallNotice(role === "caller" ? "Собеседник подключился." : "Вы подключены к звонку.");
+        setCallNotice(role === "caller" ? "Собеседник подключился. Звук включён." : "Вы подключены к звонку. Звук включён.");
+        void remoteAudioRef.current?.play().catch(() => undefined);
+        void remoteVideoRef.current?.play().catch(() => undefined);
       }
       if (["failed", "disconnected", "closed"].includes(state)) {
         if (state === "failed") setCallNotice("Звонок не смог установиться. Иногда нужен TURN-сервер или другая сеть.");
+      }
+    };
+
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+        setCallWorking(true);
+        void remoteAudioRef.current?.play().catch(() => undefined);
+        void remoteVideoRef.current?.play().catch(() => undefined);
       }
     };
 
@@ -668,15 +730,12 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   async function startCall(kind: "AUDIO" | "VIDEO") {
     if (!activeChatId) return;
     cleanupCallMedia();
-    const allowed = await testMedia(kind);
-    if (!allowed) {
-      setCallNotice("Браузер не дал доступ к микрофону/камере. Разреши доступ и попробуй ещё раз.");
-      return;
-    }
 
     try {
       setCallNotice(kind === "VIDEO" ? "Создаю видеозвонок..." : "Создаю аудиозвонок...");
       const stream = await ensureLocalMedia(kind);
+      void localVideoRef.current?.play().catch(() => undefined);
+      void remoteAudioRef.current?.play().catch(() => undefined);
       const pc = createPeer("caller");
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       const offer = await pc.createOffer();
@@ -702,7 +761,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       setCallNotice("Звоним… собеседник увидит входящий звонок. Если сеть сложная, может понадобиться TURN, но базовый сигналинг исправлен.");
     } catch {
       cleanupCallMedia();
-      setCallNotice("Не удалось начать звонок.");
+      setCallNotice(kind === "VIDEO" ? "Не удалось начать видеозвонок. Проверь разрешение камеры и микрофона." : "Не удалось начать аудиозвонок. Проверь разрешение микрофона.");
     }
   }
 
@@ -711,10 +770,15 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
     try {
       const callToAnswer = activeCall;
+      setActiveChatId(callToAnswer.chatId);
+      setMobileListOpen(false);
+      void loadMessages(callToAnswer.chatId);
       activeCallRef.current = callToAnswer;
       cleanupCallMedia();
       activeCallRef.current = callToAnswer;
       const stream = await ensureLocalMedia(callToAnswer.kind);
+      void localVideoRef.current?.play().catch(() => undefined);
+      void remoteAudioRef.current?.play().catch(() => undefined);
       const pc = createPeer("receiver");
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
@@ -744,6 +808,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       setActiveCall(data.call);
       await flushPendingIce("receiver");
       await applyRemoteIce(data.call.callerIce);
+      void localVideoRef.current?.play().catch(() => undefined);
+      void remoteAudioRef.current?.play().catch(() => undefined);
+      void remoteVideoRef.current?.play().catch(() => undefined);
       setCallNotice("Подключаю звонок...");
     } catch {
       cleanupCallMedia();
@@ -773,12 +840,13 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     if (activeCallRef.current?.id === call.id) return;
     activeCallRef.current = call;
     setActiveCall(call);
-    if (call.chatId !== activeChatId) {
-      setActiveChatId(call.chatId);
-      void loadMessages(call.chatId);
+    if (call.callerId === currentUser.id || call.status === "ACCEPTED") {
+      if (call.chatId !== activeChatId) {
+        setActiveChatId(call.chatId);
+        void loadMessages(call.chatId);
+      }
     }
     if (call.callerId !== currentUser.id) {
-      setMobileListOpen(false);
       setCallNotice(`${call.caller.displayName} звонит…`);
     }
   }
@@ -833,6 +901,46 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     }
   }
 
+  async function applyAudioRoute(nextSpeakerOn: boolean) {
+    const audio = remoteAudioRef.current as AudioOutputElement | null;
+    if (!audio) return;
+
+    audio.muted = false;
+    audio.volume = 1;
+
+    try {
+      await audio.play();
+    } catch {
+      // On iOS/Safari playback sometimes starts only after the user's tap.
+    }
+
+    if (typeof audio.setSinkId !== "function") {
+      setAudioRouteStatus(nextSpeakerOn ? "Громкая связь" : "Обычный звук");
+      return;
+    }
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const outputs = devices.filter((device) => device.kind === "audiooutput");
+      const speaker = outputs.find((device) => /speaker|громк|динамик|loud/i.test(device.label));
+      const earpiece = outputs.find((device) => /ear|receiver|phone|телефон|communication/i.test(device.label));
+      const target = nextSpeakerOn
+        ? (speaker?.deviceId || "default")
+        : (earpiece?.deviceId || outputs.find((device) => device.deviceId === "communications")?.deviceId || "default");
+
+      await audio.setSinkId(target);
+      setAudioRouteStatus(nextSpeakerOn ? "Громкая связь" : "Обычный звук");
+    } catch {
+      setAudioRouteStatus(nextSpeakerOn ? "Громкая связь" : "Обычный звук");
+    }
+  }
+
+  async function toggleSpeaker() {
+    const next = !speakerOn;
+    setSpeakerOn(next);
+    await applyAudioRoute(next);
+  }
+
   function toggleMute() {
     const stream = localStreamRef.current;
     if (!stream) return;
@@ -858,6 +966,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
   return (
     <main className="tg-main h-dvh w-full overflow-hidden bg-[#dfe8f2] text-[#111827]">
+      <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" aria-hidden="true" />
       <div className="tg-shell mx-auto flex h-full max-w-[1500px] shadow-2xl shadow-slate-900/10">
         <aside className={`tg-sidebar ${showSidebar ? "flex" : "hidden"} h-full w-full shrink-0 flex-col border-r border-slate-200 bg-white lg:flex lg:w-[390px]`}>
           <div className="tg-topbar border-b border-slate-200 bg-[#f8fbff]/95 px-4 pb-3 pt-[max(14px,env(safe-area-inset-top))] backdrop-blur-xl">
@@ -1050,7 +1159,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
             </div>
           </header>
 
-          {activeCall ? (
+          {activeCall && !isIncomingRinging ? (
             <div className="tg-inline-panel border-b border-slate-200 px-4 py-3">
               <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 rounded-2xl bg-[#e8f4fc] px-4 py-3 text-sm text-slate-700">
                 <div className="min-w-0">
@@ -1127,26 +1236,49 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
         </section>
       </div>
 
-      {activeCall ? (
+      {isIncomingRinging && activeCall ? (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-5 backdrop-blur-md">
+          <div className="pointer-events-auto w-full max-w-sm rounded-[2rem] bg-[#111827] p-6 text-center text-white shadow-2xl">
+            <div className="mx-auto mb-5 grid h-24 w-24 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-4xl font-bold shadow-xl shadow-[#229ed9]/25">
+              {avatarLabel(activeCall.caller.displayName)}
+            </div>
+            <p className="text-2xl font-bold tracking-[-0.03em]">{activeCall.caller.displayName}</p>
+            <p className="mt-1 text-sm text-white/65">@{activeCall.caller.username}</p>
+            <p className="mt-4 text-base font-medium text-white/85">{activeCall.kind === "VIDEO" ? "Входящий видеозвонок" : "Входящий аудиозвонок"}</p>
+            <p className="mt-2 text-xs leading-5 text-white/50">Сначала выбери: принять или отклонить. Камера/микрофон включатся только после принятия.</p>
+            <div className="mt-7 grid grid-cols-2 gap-4">
+              <button onClick={() => void endCall("DECLINED")} className="flex flex-col items-center gap-2 rounded-3xl bg-red-500 px-4 py-4 font-semibold text-white active:scale-95">
+                <PhoneOff size={25} /> Отклонить
+              </button>
+              <button onClick={() => void acceptCall()} className="flex flex-col items-center gap-2 rounded-3xl bg-emerald-500 px-4 py-4 font-semibold text-white active:scale-95">
+                <Phone size={25} /> Принять
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : activeCall ? (
         <div className="pointer-events-none fixed inset-0 z-40 flex items-end justify-center bg-slate-950/55 p-3 sm:items-center">
           <div className="tg-modal pointer-events-auto w-full max-w-4xl rounded-[2rem] p-4 shadow-2xl">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <p className="tg-title text-lg font-bold">{activeCall.kind === "VIDEO" ? "Видеозвонок" : "Аудиозвонок"}</p>
-                <p className="tg-muted text-xs">{callWorking ? "Соединение установлено" : callNotice || "Подключение..."}</p>
+                <p className="tg-muted text-xs">{callWorking || isCallConnected ? `Соединение установлено · ${audioRouteStatus}` : callNotice || "Подключение..."}</p>
               </div>
               <div className="flex gap-2">
-                <button onClick={toggleMute} className={`grid h-11 w-11 place-items-center rounded-full ${callMuted ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-700"}`}><Mic size={18} /></button>
-                {activeCall.kind === "VIDEO" ? <button onClick={toggleCamera} className={`grid h-11 w-11 place-items-center rounded-full ${callCameraOff ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-700"}`}>{callCameraOff ? <VideoOff size={18} /> : <Video size={18} />}</button> : null}
+                <button onClick={toggleMute} title={callMuted ? "Включить микрофон" : "Выключить микрофон"} className={`grid h-11 w-11 place-items-center rounded-full ${callMuted ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-700"}`}><Mic size={18} /></button>
+                <button onClick={() => void toggleSpeaker()} title={speakerOn ? "Обычный звук" : "Громкая связь"} className={`grid h-11 w-11 place-items-center rounded-full ${speakerOn ? "bg-[#229ed9] text-white" : "bg-slate-100 text-slate-700"}`}>{speakerOn ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>
+                {activeCall.kind === "VIDEO" ? <button onClick={toggleCamera} title={callCameraOff ? "Включить камеру" : "Выключить камеру"} className={`grid h-11 w-11 place-items-center rounded-full ${callCameraOff ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-700"}`}>{callCameraOff ? <VideoOff size={18} /> : <Video size={18} />}</button> : null}
                 <button onClick={() => void endCall("ENDED")} className="grid h-11 w-11 place-items-center rounded-full bg-red-500 text-white"><PhoneOff size={18} /></button>
               </div>
             </div>
+
+            <div className="mb-3 rounded-2xl bg-black/5 px-3 py-2 text-xs text-slate-500">На телефоне кнопка динамика переключает режим «громкая связь / обычный звук». Если браузер не даёт принудительно выбрать динамик, Pirogram включает максимально громкое воспроизведение, а окончательный маршрут звука выбирает система телефона.</div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="overflow-hidden rounded-[1.5rem] bg-slate-100 p-3">
                 <p className="tg-muted mb-2 text-xs font-semibold">Ты</p>
                 {activeCall.kind === "VIDEO" ? (
-                  localStream ? <video ref={localVideoRef} autoPlay playsInline muted className="h-[220px] w-full rounded-[1.2rem] bg-black object-cover" /> : <div className="grid h-[220px] place-items-center rounded-[1.2rem] bg-slate-200 text-slate-500">Ожидание камеры</div>
+                  localStream ? <video ref={localVideoRef} autoPlay playsInline muted className="h-[220px] w-full rounded-[1.2rem] bg-black object-cover" /> : <div className="grid h-[220px] place-items-center rounded-[1.2rem] bg-slate-200 text-slate-500">Камера не включена</div>
                 ) : (
                   <div className="grid h-[180px] place-items-center rounded-[1.2rem] bg-slate-200">
                     <div className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] to-[#229ed9] text-2xl font-bold text-white">{avatarLabel(currentUser.displayName)}</div>
@@ -1156,7 +1288,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               <div className="overflow-hidden rounded-[1.5rem] bg-slate-100 p-3">
                 <p className="tg-muted mb-2 text-xs font-semibold">Собеседник</p>
                 {activeCall.kind === "VIDEO" ? (
-                  remoteStream ? <video ref={remoteVideoRef} autoPlay playsInline className="h-[220px] w-full rounded-[1.2rem] bg-black object-cover" /> : <div className="grid h-[220px] place-items-center rounded-[1.2rem] bg-slate-200 text-slate-500">Ждём подключение собеседника</div>
+                  remoteStream ? <video ref={remoteVideoRef} autoPlay playsInline className="h-[220px] w-full rounded-[1.2rem] bg-black object-cover" /> : <div className="grid h-[220px] place-items-center rounded-[1.2rem] bg-slate-200 text-slate-500">Ждём видео собеседника</div>
                 ) : (
                   <div className="grid h-[180px] place-items-center rounded-[1.2rem] bg-slate-200">
                     <div className="grid h-20 w-20 place-items-center rounded-full bg-white text-2xl font-bold text-[#229ed9] shadow-sm">{avatarLabel(activeCall.callerId === currentUser.id ? activeChat?.title : activeCall.caller.displayName)}</div>
