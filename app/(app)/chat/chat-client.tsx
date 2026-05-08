@@ -184,6 +184,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const callRoleRef = useRef<"caller" | "receiver" | null>(null);
   const signalStartedRef = useRef<string | null>(null);
   const addedIceKeysRef = useRef<Set<string>>(new Set());
+  const pendingLocalIceRef = useRef<SignalIce[]>([]);
 
   const activeChat = useMemo(() => chats.find((chat) => chat.id === activeChatId), [chats, activeChatId]);
   const lastMessageDate = messages[messages.length - 1]?.createdAt;
@@ -252,9 +253,16 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       void loadNewMessages(activeChatId);
       void refreshReadReceipts(activeChatId);
       void pollCall(activeChatId);
-    }, 2200);
+    }, 1800);
     return () => window.clearInterval(interval);
   }, [activeChatId, lastMessageDate]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void pollAnyCall();
+    }, 2500);
+    return () => window.clearInterval(interval);
+  }, [activeChatId]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -569,6 +577,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     setCallMuted(false);
     setCallCameraOff(false);
     addedIceKeysRef.current = new Set();
+    pendingLocalIceRef.current = [];
     signalStartedRef.current = null;
     callRoleRef.current = null;
   }
@@ -580,6 +589,28 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     localStreamRef.current = stream;
     setLocalStream(stream);
     return stream;
+  }
+
+  async function sendIceCandidate(role: "caller" | "receiver", candidate: SignalIce) {
+    const currentCall = activeCallRef.current;
+    if (!currentCall) {
+      pendingLocalIceRef.current.push(candidate);
+      return;
+    }
+    const field = role === "caller" ? "callerIce" : "receiverIce";
+    await fetch("/api/calls", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callId: currentCall.id, [field]: [candidate] })
+    }).catch(() => undefined);
+  }
+
+  async function flushPendingIce(role: "caller" | "receiver") {
+    const candidates = pendingLocalIceRef.current;
+    if (!candidates.length) return;
+    pendingLocalIceRef.current = [];
+    await Promise.all(candidates.map((candidate) => sendIceCandidate(role, candidate)));
   }
 
   function createPeer(role: "caller" | "receiver") {
@@ -606,19 +637,12 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     };
 
     pc.onicecandidate = (event) => {
-      const currentCall = activeCallRef.current;
-      if (!currentCall || !event.candidate) return;
+      if (!event.candidate) return;
       const candidate = event.candidate.toJSON() as SignalIce;
       const key = JSON.stringify(candidate);
       if (addedIceKeysRef.current.has(`local:${key}`)) return;
       addedIceKeysRef.current.add(`local:${key}`);
-      const field = role === "caller" ? "callerIce" : "receiverIce";
-      void fetch("/api/calls", {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ callId: currentCall.id, [field]: [candidate] })
-      });
+      void sendIceCandidate(role, candidate);
     };
 
     peerRef.current = pc;
@@ -672,8 +696,10 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       }
 
       signalStartedRef.current = data.call.id;
+      activeCallRef.current = data.call;
       setActiveCall(data.call);
-      setCallNotice("Звоним… собеседник увидит входящий звонок. Для идеальной работы в любых сетях позже можно добавить TURN-сервер.");
+      await flushPendingIce("caller");
+      setCallNotice("Звоним… собеседник увидит входящий звонок. Если сеть сложная, может понадобиться TURN, но базовый сигналинг исправлен.");
     } catch {
       cleanupCallMedia();
       setCallNotice("Не удалось начать звонок.");
@@ -684,24 +710,27 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     if (!activeCall) return;
 
     try {
+      const callToAnswer = activeCall;
+      activeCallRef.current = callToAnswer;
       cleanupCallMedia();
-      const stream = await ensureLocalMedia(activeCall.kind);
+      activeCallRef.current = callToAnswer;
+      const stream = await ensureLocalMedia(callToAnswer.kind);
       const pc = createPeer("receiver");
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
-      if (!activeCall.offer?.sdp) {
+      if (!callToAnswer.offer?.sdp) {
         setCallNotice("Входящий звонок без offer. Попробуй позвонить снова.");
         return;
       }
 
-      await pc.setRemoteDescription(new RTCSessionDescription(activeCall.offer));
+      await pc.setRemoteDescription(new RTCSessionDescription(callToAnswer.offer));
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       const response = await fetch("/api/calls", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ callId: activeCall.id, status: "ACCEPTED", answer: { type: answer.type, sdp: answer.sdp || "" } })
+        body: JSON.stringify({ callId: callToAnswer.id, status: "ACCEPTED", answer: { type: answer.type, sdp: answer.sdp || "" } })
       });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
@@ -711,7 +740,10 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       }
 
       signalStartedRef.current = data.call.id;
+      activeCallRef.current = data.call;
       setActiveCall(data.call);
+      await flushPendingIce("receiver");
+      await applyRemoteIce(data.call.callerIce);
       setCallNotice("Подключаю звонок...");
     } catch {
       cleanupCallMedia();
@@ -733,6 +765,24 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     setCallNotice(status === "DECLINED" ? "Звонок отклонён." : "Звонок завершён.");
   }
 
+  async function pollAnyCall() {
+    const response = await fetch("/api/calls", { credentials: "include" });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.call) return;
+    const call = data.call as CallSession;
+    if (activeCallRef.current?.id === call.id) return;
+    activeCallRef.current = call;
+    setActiveCall(call);
+    if (call.chatId !== activeChatId) {
+      setActiveChatId(call.chatId);
+      void loadMessages(call.chatId);
+    }
+    if (call.callerId !== currentUser.id) {
+      setMobileListOpen(false);
+      setCallNotice(`${call.caller.displayName} звонит…`);
+    }
+  }
+
   async function pollCall(chatId: string) {
     const response = await fetch(`/api/calls?chatId=${encodeURIComponent(chatId)}`);
     const data = await response.json().catch(() => null);
@@ -740,17 +790,20 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     const call = (data?.call ?? null) as CallSession | null;
 
     if (!call) {
-      if (activeCallRef.current) {
+      if (activeCallRef.current?.chatId === chatId) {
         cleanupCallMedia();
+        activeCallRef.current = null;
         setActiveCall(null);
       }
       return;
     }
 
+    activeCallRef.current = call;
     setActiveCall(call);
 
     if (["ENDED", "DECLINED", "MISSED"].includes(call.status)) {
       cleanupCallMedia();
+      activeCallRef.current = null;
       setActiveCall(null);
       setCallNotice(call.status === "DECLINED" ? "Собеседник отклонил звонок." : "Звонок завершён.");
       return;
@@ -765,6 +818,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
     if (role === "caller" && pc && call.status === "ACCEPTED" && call.answer?.sdp && !pc.currentRemoteDescription) {
       await pc.setRemoteDescription(new RTCSessionDescription(call.answer));
+      await applyRemoteIce(call.receiverIce);
+      await flushPendingIce("caller");
       setCallNotice("Собеседник ответил. Устанавливаю соединение...");
     }
 
@@ -773,6 +828,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
         await applyRemoteIce(call.receiverIce);
       } else if (role === "receiver") {
         await applyRemoteIce(call.callerIce);
+        await flushPendingIce("receiver");
       }
     }
   }
@@ -1044,9 +1100,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
           </div>
 
           {mediaDraft ? (
-            <div className="tg-compose border-t border-slate-200 px-3 pt-3">
-              <div className="tg-preview-card mx-auto flex max-w-4xl items-center gap-3 rounded-2xl p-3">
-                {mediaDraft.type === "IMAGE" ? <img src={mediaDraft.data} alt="preview" className="h-16 w-16 rounded-xl object-cover" /> : <video src={mediaDraft.data} className="h-16 w-16 rounded-xl object-cover" muted playsInline />}
+            <div className="tg-compose border-t border-slate-200 px-2 pt-2">
+              <div className="tg-preview-card mx-auto flex max-w-4xl items-center gap-2 rounded-2xl p-2">
+                {mediaDraft.type === "IMAGE" ? <img src={mediaDraft.data} alt="preview" className="h-12 w-12 rounded-xl object-cover" /> : <video src={mediaDraft.data} className="h-12 w-12 rounded-xl object-cover" muted playsInline />}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-slate-950">{mediaDraft.name}</p>
                   <p className="tg-muted text-xs">Готово к отправке</p>
@@ -1056,15 +1112,15 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
             </div>
           ) : null}
 
-          <form onSubmit={sendMessage} className="tg-compose border-t border-slate-200 p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
-            <div className="mx-auto flex max-w-4xl items-end gap-2">
+          <form onSubmit={sendMessage} className="tg-compose border-t border-slate-200 px-2 py-1.5 pb-[max(6px,env(safe-area-inset-bottom))]">
+            <div className="mx-auto flex max-w-4xl items-end gap-1.5">
               <input ref={fileRef} type="file" accept="image/*,video/*" onChange={onFileChange} className="hidden" />
-              <button type="button" onClick={() => fileRef.current?.click()} className="grid h-11 w-11 place-items-center rounded-full text-slate-400 active:bg-slate-100 tg-icon-btn" title="Фото или видео">
-                <Paperclip size={22} />
+              <button type="button" onClick={() => fileRef.current?.click()} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-400 active:bg-slate-100 tg-icon-btn" title="Фото или видео">
+                <Paperclip size={20} />
               </button>
-              <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Message" className="tg-input-darkfix max-h-36 min-h-11 flex-1 resize-none rounded-[1.35rem] px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-[#229ed9]/20" rows={1} />
-              <button disabled={sending || (!text.trim() && !mediaDraft) || !activeChatId} className="grid h-11 w-11 place-items-center rounded-full bg-[#229ed9] text-white shadow-lg shadow-[#229ed9]/20 disabled:bg-slate-300" aria-label="Отправить">
-                {sending ? <Loader2 className="animate-spin" size={19} /> : <Send size={19} />}
+              <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Message" className="tg-input-darkfix max-h-28 min-h-9 flex-1 resize-none rounded-[1.1rem] px-3 py-2 text-[14px] leading-5 outline-none focus:ring-2 focus:ring-[#229ed9]/20" rows={1} />
+              <button disabled={sending || (!text.trim() && !mediaDraft) || !activeChatId} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#229ed9] text-white shadow-lg shadow-[#229ed9]/20 disabled:bg-slate-300" aria-label="Отправить">
+                {sending ? <Loader2 className="animate-spin" size={19} /> : <Send size={17} />}
               </button>
             </div>
           </form>

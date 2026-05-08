@@ -42,6 +42,24 @@ async function ensureMembership(userId: string, chatId: string) {
   return db.chatMember.findUnique({ where: { userId_chatId: { userId, chatId } } });
 }
 
+function normalizeIce(value: unknown): Prisma.InputJsonValue[] {
+  if (!value) return [];
+  return Array.isArray(value) ? (value as Prisma.InputJsonValue[]) : [value as Prisma.InputJsonValue];
+}
+
+function mergeIce(current: unknown, incoming: unknown): Prisma.InputJsonValue[] {
+  const merged: Prisma.InputJsonValue[] = [];
+  const seen = new Set<string>();
+  for (const candidate of [...normalizeIce(current), ...normalizeIce(incoming)]) {
+    const key = JSON.stringify(candidate);
+    if (!seen.has(key)) {
+      seen.add(key);
+      merged.push(candidate);
+    }
+  }
+  return merged.slice(-80);
+}
+
 export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) return jsonError("Не авторизован.", 401);
@@ -58,7 +76,18 @@ export async function GET(request: Request) {
     return NextResponse.json({ call });
   }
 
-  if (!chatId) return jsonError("chatId обязателен.", 400);
+  if (!chatId) {
+    const call = await db.callSession.findFirst({
+      where: {
+        status: { in: ["RINGING", "ACCEPTED"] },
+        chat: { members: { some: { userId: user.id } } }
+      },
+      orderBy: { updatedAt: "desc" },
+      select: selectCall
+    });
+    return NextResponse.json({ call });
+  }
+
   const membership = await ensureMembership(user.id, chatId);
   if (!membership) return jsonError("Нет доступа к чату.", 403);
 
@@ -125,7 +154,7 @@ export async function PATCH(request: Request) {
   const parsed = patchSchema.safeParse(body);
   if (!parsed.success) return jsonError("Некорректные данные звонка.", 400);
 
-  const current = await db.callSession.findUnique({ where: { id: parsed.data.callId }, select: { chatId: true } });
+  const current = await db.callSession.findUnique({ where: { id: parsed.data.callId }, select: { chatId: true, callerIce: true, receiverIce: true } });
   if (!current) return jsonError("Звонок не найден.", 404);
 
   const membership = await ensureMembership(user.id, current.chatId);
@@ -139,8 +168,8 @@ export async function PATCH(request: Request) {
     }
   }
   if (parsed.data.answer !== undefined) updateData.answer = parsed.data.answer as Prisma.InputJsonValue;
-  if (parsed.data.callerIce !== undefined) updateData.callerIce = parsed.data.callerIce as Prisma.InputJsonValue;
-  if (parsed.data.receiverIce !== undefined) updateData.receiverIce = parsed.data.receiverIce as Prisma.InputJsonValue;
+  if (parsed.data.callerIce !== undefined) updateData.callerIce = mergeIce(current.callerIce, parsed.data.callerIce);
+  if (parsed.data.receiverIce !== undefined) updateData.receiverIce = mergeIce(current.receiverIce, parsed.data.receiverIce);
 
   const call = await db.callSession.update({
     where: { id: parsed.data.callId },
