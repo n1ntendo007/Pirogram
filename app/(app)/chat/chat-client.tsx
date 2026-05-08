@@ -755,231 +755,226 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const showChat = !mobileListOpen || typeof window === "undefined";
 
   return (
-    <main className="safe-screen mx-auto flex max-w-[1480px] gap-4 lg:h-dvh">
-      <aside className={`glass ${showSidebar ? "flex" : "hidden"} w-full flex-col overflow-hidden rounded-[2rem] lg:flex lg:w-[27rem]`}>
-        <div className="border-b border-yellow-300/10 p-4">
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="text-2xl font-black tracking-tight text-white">Pirogram</h1>
-              <p className="truncate text-xs text-zinc-400">@{currentUser.username} · {currentUser.displayName}</p>
+    <main className="h-dvh w-full overflow-hidden bg-[#dfe8f2] text-[#111827]">
+      <div className="mx-auto flex h-full max-w-[1500px] bg-[#f6f8fb] shadow-2xl shadow-slate-900/10">
+        <aside className={`${showSidebar ? "flex" : "hidden"} h-full w-full shrink-0 flex-col border-r border-slate-200 bg-white lg:flex lg:w-[390px]`}>
+          <div className="border-b border-slate-200 bg-[#f8fbff]/95 px-4 pb-3 pt-[max(14px,env(safe-area-inset-top))] backdrop-blur-xl">
+            <div className="mb-3 flex h-11 items-center justify-between">
+              <button type="button" className="rounded-full px-1 text-[15px] font-medium text-[#229ed9] active:opacity-60">Edit</button>
+              <h1 className="text-[18px] font-bold tracking-[-0.02em] text-slate-950">Chats</h1>
+              <button onClick={logout} className="grid h-9 w-9 place-items-center rounded-full text-[#229ed9] active:bg-slate-100" aria-label="Выйти">
+                <LogOut size={19} />
+              </button>
             </div>
-            <button onClick={logout} className="rounded-2xl border border-yellow-300/10 bg-white/[0.04] p-3 text-zinc-300 active:scale-95" aria-label="Выйти">
-              <LogOut size={18} />
-            </button>
-          </div>
 
-          {installTip ? (
-            <div className="mb-3 flex gap-3 rounded-2xl border border-yellow-400/15 bg-yellow-500/8 p-3 text-xs text-yellow-100/90">
-              <Smartphone className="mt-0.5 shrink-0" size={15} />
-              <span>{installTip}</span>
-            </div>
-          ) : null}
+            <label className="flex h-10 items-center gap-2 rounded-xl bg-[#eef2f7] px-3 text-[15px] text-slate-500 shadow-inner shadow-slate-200/50 focus-within:ring-2 focus-within:ring-[#229ed9]/20">
+              <Search size={17} />
+              <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search or @username" className="min-w-0 flex-1 bg-transparent text-slate-900 outline-none placeholder:text-slate-400" autoCapitalize="none" />
+              {searchQuery ? <button type="button" onClick={() => { setSearchQuery(""); setSearchResults([]); }} className="grid h-5 w-5 place-items-center rounded-full bg-slate-300 text-white"><X size={13} /></button> : null}
+            </label>
 
-          <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto]">
-            <button onClick={enablePush} disabled={pushBusy || !pushReady} className={`flex min-h-12 items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold active:scale-[0.98] ${pushReady ? "border-yellow-400/15 bg-yellow-500/10 text-yellow-100" : "border-white/10 bg-white/[0.04] text-zinc-500"}`}>
-              <Bell size={16} /> {pushBusy ? "Подключаю push..." : pushStatus}
-            </button>
-            <button onClick={sendPushTest} disabled={testingPush || !pushReady} className="rounded-2xl border border-yellow-400/15 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-zinc-200 active:scale-[0.98] disabled:opacity-50">
-              {testingPush ? <Loader2 size={16} className="mx-auto animate-spin" /> : <span className="inline-flex items-center gap-2"><TestTube2 size={16} /> Тест</span>}
-            </button>
-          </div>
-          <p className="mb-3 text-[11px] leading-5 text-zinc-500">
-            Push приходит только на том устройстве, где ты его включил. Если шлёшь сообщение сам себе — уведомления не будет. На iPhone нужен значок на домашнем экране.
-          </p>
-
-          <form onSubmit={createChat} className="space-y-2">
-            <div className="flex gap-2">
-              <label className="flex min-h-12 flex-1 items-center gap-2 rounded-2xl border border-yellow-300/12 bg-white/[0.04] px-3 text-sm text-zinc-300 focus-within:border-yellow-300/55">
-                <Search size={16} className="text-zinc-500" />
-                <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Найти по @username" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-zinc-500" autoCapitalize="none" />
-              </label>
-              <button className="rounded-2xl border border-yellow-300/12 bg-white/[0.04] p-3 text-yellow-100 active:scale-95" aria-label="Открыть чат"><Plus size={19} /></button>
-            </div>
-            {searching ? <p className="px-2 text-xs text-zinc-500">Ищу пользователя...</p> : null}
-            {searchResults.length ? (
-              <div className="space-y-1 rounded-2xl border border-yellow-300/10 bg-black/20 p-2">
+            {searchQuery.trim().length >= 2 ? (
+              <div className="mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
+                {searching ? <p className="px-3 py-3 text-sm text-slate-500">Ищу пользователя...</p> : null}
                 {searchResults.map((user) => (
-                  <button key={user.id} type="button" onClick={() => void startPrivateChat(user.username)} className="flex w-full items-center gap-3 rounded-2xl p-2 text-left active:bg-white/[0.07]">
-                    {user.avatarData ? <img src={user.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-yellow-300 via-amber-500 to-yellow-700 text-sm font-black text-black">{avatarLabel(user.displayName || user.username)}</div>}
+                  <button key={user.id} type="button" onClick={() => void startPrivateChat(user.username)} className="flex w-full items-center gap-3 border-b border-slate-100 px-3 py-2.5 text-left last:border-b-0 active:bg-[#eef7fd]">
+                    {user.avatarData ? <img src={user.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-[#57c4ff] to-[#1e8fd0] text-sm font-bold text-white">{avatarLabel(user.displayName || user.username)}</div>}
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-white">{user.displayName}</span>
-                      <span className="block truncate text-xs text-zinc-400">@{user.username}</span>
+                      <span className="block truncate text-[15px] font-semibold text-slate-950">{user.displayName}</span>
+                      <span className="block truncate text-[13px] text-[#229ed9]">@{user.username}</span>
                     </span>
+                    <span className="rounded-full bg-[#229ed9]/10 px-2.5 py-1 text-xs font-semibold text-[#229ed9]">Chat</span>
                   </button>
                 ))}
+                {!searching && !searchResults.length ? <p className="px-3 py-3 text-sm text-slate-500">Пользователи не найдены</p> : null}
               </div>
             ) : null}
-            {searchError ? <p className="rounded-2xl border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-200">{searchError}</p> : null}
-          </form>
-        </div>
-
-        <div className="no-scrollbar flex-1 overflow-y-auto p-2">
-          {loadingChats ? <p className="p-4 text-sm text-zinc-400">Загружаю чаты...</p> : null}
-          {chats.map((chat) => {
-            const lastMessage = chat.messages?.[0];
-            const active = chat.id === activeChatId;
-            const mine = lastMessage?.senderId === currentUser.id;
-            return (
-              <button
-                key={chat.id}
-                onClick={() => {
-                  setActiveChatId(chat.id);
-                  setMobileListOpen(false);
-                }}
-                className={`mb-1 flex w-full items-center gap-3 rounded-[1.4rem] px-3 py-3 text-left transition ${active ? "bg-yellow-500/12 shadow-[inset_0_0_0_1px_rgba(245,158,11,.15)]" : "hover:bg-white/[0.04] active:bg-white/[0.06]"}`}
-              >
-                {chat.avatarData ? <img src={chat.avatarData} alt="" className="h-14 w-14 shrink-0 rounded-full object-cover" /> : <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-gradient-to-br from-yellow-300 via-amber-500 to-yellow-700 font-black text-black">{avatarLabel(chat.title)}</div>}
-                <div className="min-w-0 flex-1">
-                  <div className="mb-1 flex items-center gap-3">
-                    <p className="min-w-0 flex-1 truncate text-[15px] font-semibold text-white">{chat.title || "Чат"}</p>
-                    <span className="shrink-0 text-[11px] text-zinc-500">{timeLabel(lastMessage?.createdAt || chat.updatedAt)}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="min-w-0 flex-1 truncate text-sm text-zinc-400">
-                      {mine ? (
-                        <span className="mr-1 inline-flex align-middle text-yellow-300">{lastMessage?.readByOthers ? <CheckCheck size={14} /> : <Check size={14} />}</span>
-                      ) : null}
-                      <span>{chatPreview(lastMessage)}</span>
-                    </div>
-                    {chat.unreadCount ? <span className="grid min-w-6 place-items-center rounded-full bg-yellow-400 px-1.5 py-0.5 text-[11px] font-black text-black">{chat.unreadCount > 99 ? "99+" : chat.unreadCount}</span> : null}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </aside>
-
-      <section className={`glass ${showChat ? "flex" : "hidden"} min-h-[70dvh] flex-1 flex-col overflow-hidden rounded-[2rem] lg:flex`}>
-        <header className="flex items-center gap-3 border-b border-yellow-300/10 px-4 py-3">
-          <button onClick={() => setMobileListOpen(true)} className="rounded-2xl border border-yellow-300/10 bg-white/[0.04] p-2.5 text-zinc-300 lg:hidden">
-            <ArrowLeft size={18} />
-          </button>
-          {activeChat?.avatarData ? <img src={activeChat.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-yellow-300 via-amber-500 to-yellow-700 text-sm font-black text-black">{avatarLabel(activeChat?.title)}</div>}
-          <div className="min-w-0 flex-1">
-            <h2 className="truncate text-lg font-black text-white">{activeChat?.title || "Выберите чат"}</h2>
-            <p className="truncate text-xs text-zinc-500">{activeChat?.username ? `@${activeChat.username}` : "Личные сообщения"}</p>
+            {searchError ? <p className="mt-2 rounded-xl bg-red-50 p-3 text-xs text-red-600">{searchError}</p> : null}
           </div>
-          <div className="flex gap-2">
-            <button onClick={() => void startCall("AUDIO")} disabled={!activeChatId} className="rounded-2xl border border-yellow-300/10 bg-white/[0.04] p-3 text-zinc-300 active:scale-95 disabled:opacity-50" title="Аудиозвонок">
-              <Phone size={18} />
-            </button>
-            <button onClick={() => void startCall("VIDEO")} disabled={!activeChatId} className="rounded-2xl border border-yellow-300/10 bg-white/[0.04] p-3 text-zinc-300 active:scale-95 disabled:opacity-50" title="Видеозвонок">
-              <Video size={18} />
-            </button>
-          </div>
-        </header>
 
-        {activeCall ? (
-          <div className="mx-4 mt-4 rounded-3xl border border-yellow-400/15 bg-yellow-500/10 p-4 text-sm text-yellow-100">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="font-black">{activeCall.kind === "VIDEO" ? "Видеозвонок" : "Аудиозвонок"}</p>
-                <p className="text-xs text-yellow-100/75">{activeCall.callerId === currentUser.id ? "Ты звонишь" : `${activeCall.caller.displayName} звонит`} · статус: {activeCall.status}</p>
-              </div>
-              <div className="flex gap-2">
-                {activeCall.callerId !== currentUser.id && activeCall.status === "RINGING" ? (
-                  <button onClick={() => void acceptCall()} className="rounded-2xl bg-emerald-400/20 px-4 py-2 font-semibold text-emerald-100">Принять</button>
-                ) : null}
-                <button onClick={() => void endCall(activeCall.callerId !== currentUser.id && activeCall.status === "RINGING" ? "DECLINED" : "ENDED")} className="rounded-2xl bg-red-500/20 px-4 py-2 font-semibold text-red-100">{activeCall.callerId !== currentUser.id && activeCall.status === "RINGING" ? "Отклонить" : "Завершить"}</button>
-              </div>
-            </div>
-            <p className="mt-3 text-xs leading-5 text-yellow-100/70">Звонки уже подключены через WebRTC + сигналинг на сервере. Если в некоторых сетях не соединяется — это обычно из-за отсутствия TURN-сервера. В обычных сетях должно работать.</p>
-          </div>
-        ) : null}
-        {callNotice ? <p className="mx-4 mt-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-xs leading-5 text-zinc-300">{callNotice}</p> : null}
-
-        <div ref={scrollRef} className="no-scrollbar flex-1 overflow-y-auto bg-[linear-gradient(180deg,rgba(255,255,255,.02),transparent_18%),radial-gradient(circle_at_top,rgba(245,158,11,.08),transparent_32%)] px-3 py-4 sm:px-5">
-          <div className="mx-auto flex max-w-4xl flex-col gap-3">
-            {messages.map((message, index) => {
-              const mine = message.senderId === currentUser.id;
-              const prev = messages[index - 1];
-              const showDay = !prev || dayLabel(prev.createdAt) !== dayLabel(message.createdAt);
+          <div className="no-scrollbar flex-1 overflow-y-auto bg-white">
+            {loadingChats ? <p className="p-4 text-sm text-slate-500">Загружаю чаты...</p> : null}
+            {chats.map((chat) => {
+              const lastMessage = chat.messages?.[0];
+              const active = chat.id === activeChatId;
+              const mine = lastMessage?.senderId === currentUser.id;
               return (
-                <div key={message.id}>
-                  {showDay ? (
-                    <div className="my-2 flex justify-center">
-                      <span className="rounded-full border border-yellow-400/10 bg-black/30 px-3 py-1 text-[11px] text-zinc-400">{dayLabel(message.createdAt)}</span>
+                <button
+                  key={chat.id}
+                  onClick={() => {
+                    setActiveChatId(chat.id);
+                    setMobileListOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-3 px-4 py-2.5 text-left transition ${active ? "bg-[#e8f4fc]" : "active:bg-slate-100 lg:hover:bg-slate-50"}`}
+                >
+                  {chat.avatarData ? <img src={chat.avatarData} alt="" className="h-[58px] w-[58px] shrink-0 rounded-full object-cover" /> : <div className="grid h-[58px] w-[58px] shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-xl font-bold text-white shadow-sm">{avatarLabel(chat.title)}</div>}
+                  <div className="min-w-0 flex-1 border-b border-slate-100 pb-2.5">
+                    <div className="mb-0.5 flex items-center gap-3">
+                      <p className="min-w-0 flex-1 truncate text-[16px] font-semibold tracking-[-0.01em] text-slate-950">{chat.title || "Чат"}</p>
+                      <span className="shrink-0 text-[12px] text-slate-400">{timeLabel(lastMessage?.createdAt || chat.updatedAt)}</span>
                     </div>
-                  ) : null}
-                  <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[88%] rounded-[1.35rem] px-4 py-3 shadow-xl ${mine ? "rounded-br-md bg-gradient-to-br from-yellow-300 via-amber-500 to-yellow-700 text-black" : "rounded-bl-md border border-yellow-300/10 bg-[#15130d]/95 text-zinc-100"}`}>
-                      {!mine ? <p className="mb-1 text-xs font-semibold text-yellow-200">{message.sender?.displayName || message.sender?.username || "Pirogram"}</p> : null}
-                      {message.mediaData && message.type === "IMAGE" ? <img src={message.mediaData} alt={message.mediaName || "Фото"} className="mb-2 max-h-80 w-full rounded-2xl object-cover" /> : null}
-                      {message.mediaData && message.type === "VIDEO" ? <video src={message.mediaData} controls playsInline className="mb-2 max-h-80 w-full rounded-2xl" /> : null}
-                      {message.text ? <p className="whitespace-pre-wrap break-words leading-6">{message.text}</p> : null}
-                      <div className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${mine ? "text-black/65" : "text-zinc-500"}`}>
-                        <span>{timeLabel(message.createdAt)}</span>
-                        {mine ? (message.readByOthers ? <CheckCheck size={13} strokeWidth={2.4} /> : <Check size={13} strokeWidth={2.4} />) : null}
+                    <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1 truncate text-[14px] leading-5 text-slate-500">
+                        {mine ? (
+                          <span className="mr-1 inline-flex align-middle text-[#229ed9]">{lastMessage?.readByOthers ? <CheckCheck size={15} /> : <Check size={15} />}</span>
+                        ) : null}
+                        <span>{chatPreview(lastMessage)}</span>
                       </div>
+                      {chat.unreadCount ? <span className="grid min-w-6 place-items-center rounded-full bg-[#229ed9] px-1.5 py-0.5 text-[11px] font-bold text-white">{chat.unreadCount > 99 ? "99+" : chat.unreadCount}</span> : null}
                     </div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
-        </div>
 
-        {mediaDraft ? (
-          <div className="border-t border-yellow-300/10 px-3 pt-3">
-            <div className="mx-auto flex max-w-4xl items-center gap-3 rounded-3xl border border-yellow-300/10 bg-white/[0.04] p-3">
-              {mediaDraft.type === "IMAGE" ? <img src={mediaDraft.data} alt="preview" className="h-16 w-16 rounded-2xl object-cover" /> : <video src={mediaDraft.data} className="h-16 w-16 rounded-2xl object-cover" muted playsInline />}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-bold text-white">{mediaDraft.name}</p>
-                <p className="text-xs text-zinc-400">Готово к отправке</p>
+          <div className="grid h-[72px] shrink-0 grid-cols-3 border-t border-slate-200 bg-[#f8fbff]/95 px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-2 text-[11px] font-medium text-slate-400 backdrop-blur-xl lg:hidden">
+            <button className="flex flex-col items-center gap-1 rounded-2xl py-1 active:bg-slate-100"><Phone size={21} /> Calls</button>
+            <button className="flex flex-col items-center gap-1 rounded-2xl py-1 text-[#229ed9] active:bg-slate-100"><Bell size={21} /> Chats</button>
+            <button className="flex flex-col items-center gap-1 rounded-2xl py-1 active:bg-slate-100"><Smartphone size={21} /> Settings</button>
+          </div>
+        </aside>
+
+        <section className={`${showChat ? "flex" : "hidden"} h-full min-w-0 flex-1 flex-col bg-[#e6edf5] lg:flex`}>
+          <header className="flex h-[64px] shrink-0 items-center gap-3 border-b border-slate-200 bg-white/95 px-3 backdrop-blur-xl sm:px-4">
+            <button onClick={() => setMobileListOpen(true)} className="grid h-10 w-10 place-items-center rounded-full text-[#229ed9] active:bg-slate-100 lg:hidden">
+              <ArrowLeft size={21} />
+            </button>
+            {activeChat?.avatarData ? <img src={activeChat.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-sm font-bold text-white">{avatarLabel(activeChat?.title)}</div>}
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-[16px] font-semibold text-slate-950">{activeChat?.title || "Выберите чат"}</h2>
+              <p className="truncate text-[13px] text-[#229ed9]">{activeChat?.username ? `@${activeChat.username}` : `@${currentUser.username}`}</p>
+            </div>
+            <div className="flex gap-1">
+              <button onClick={() => void startCall("AUDIO")} disabled={!activeChatId} className="grid h-10 w-10 place-items-center rounded-full text-[#229ed9] active:bg-slate-100 disabled:opacity-40" title="Аудиозвонок">
+                <Phone size={20} />
+              </button>
+              <button onClick={() => void startCall("VIDEO")} disabled={!activeChatId} className="grid h-10 w-10 place-items-center rounded-full text-[#229ed9] active:bg-slate-100 disabled:opacity-40" title="Видеозвонок">
+                <Video size={20} />
+              </button>
+            </div>
+          </header>
+
+          {installTip || pushStatus ? (
+            <div className="border-b border-slate-200 bg-[#f8fbff] px-4 py-2">
+              <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-2 text-[12px] text-slate-500">
+                <button onClick={enablePush} disabled={pushBusy || !pushReady} className="inline-flex items-center gap-1.5 rounded-full bg-[#229ed9]/10 px-3 py-1.5 font-semibold text-[#229ed9] disabled:opacity-50"><Bell size={13} />{pushBusy ? "Подключаю..." : pushStatus}</button>
+                <button onClick={sendPushTest} disabled={testingPush || !pushReady} className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 font-semibold text-slate-600 disabled:opacity-50"><TestTube2 size={13} />Тест push</button>
+                {installTip ? <span className="hidden sm:inline">{installTip}</span> : null}
               </div>
-              <button onClick={() => setMediaDraft(null)} className="rounded-2xl bg-white/[0.08] p-2 text-zinc-300"><X size={17} /></button>
+            </div>
+          ) : null}
+
+          {activeCall ? (
+            <div className="border-b border-slate-200 bg-white px-4 py-3">
+              <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 rounded-2xl bg-[#e8f4fc] px-4 py-3 text-sm text-slate-700">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-slate-950">{activeCall.kind === "VIDEO" ? "Видеозвонок" : "Аудиозвонок"}</p>
+                  <p className="truncate text-xs text-slate-500">{activeCall.callerId === currentUser.id ? "Ты звонишь" : `${activeCall.caller.displayName} звонит`} · {activeCall.status}</p>
+                </div>
+                <div className="flex gap-2">
+                  {activeCall.callerId !== currentUser.id && activeCall.status === "RINGING" ? (
+                    <button onClick={() => void acceptCall()} className="rounded-full bg-emerald-500 px-4 py-2 text-sm font-semibold text-white">Принять</button>
+                  ) : null}
+                  <button onClick={() => void endCall(activeCall.callerId !== currentUser.id && activeCall.status === "RINGING" ? "DECLINED" : "ENDED")} className="rounded-full bg-red-500 px-4 py-2 text-sm font-semibold text-white">{activeCall.callerId !== currentUser.id && activeCall.status === "RINGING" ? "Отклонить" : "Завершить"}</button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          {callNotice ? <p className="border-b border-slate-200 bg-white px-4 py-2 text-center text-xs text-slate-500">{callNotice}</p> : null}
+
+          <div ref={scrollRef} className="no-scrollbar flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(34,158,217,.12),transparent_35%),linear-gradient(180deg,#dfe8f2,#d8e5f0)] px-3 py-4 sm:px-5">
+            <div className="mx-auto flex max-w-4xl flex-col gap-2">
+              {messages.map((message, index) => {
+                const mine = message.senderId === currentUser.id;
+                const prev = messages[index - 1];
+                const showDay = !prev || dayLabel(prev.createdAt) !== dayLabel(message.createdAt);
+                return (
+                  <div key={message.id}>
+                    {showDay ? (
+                      <div className="my-3 flex justify-center">
+                        <span className="rounded-full bg-black/15 px-3 py-1 text-[12px] font-medium text-white shadow-sm backdrop-blur">{dayLabel(message.createdAt)}</span>
+                      </div>
+                    ) : null}
+                    <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[86%] rounded-[1.15rem] px-3.5 py-2 text-[15px] shadow-sm ${mine ? "rounded-br-[0.35rem] bg-[#d9fdd3] text-slate-950" : "rounded-bl-[0.35rem] bg-white text-slate-950"}`}>
+                        {!mine ? <p className="mb-1 text-xs font-semibold text-[#229ed9]">{message.sender?.displayName || message.sender?.username || "Pirogram"}</p> : null}
+                        {message.mediaData && message.type === "IMAGE" ? <img src={message.mediaData} alt={message.mediaName || "Фото"} className="mb-2 max-h-80 w-full rounded-xl object-cover" /> : null}
+                        {message.mediaData && message.type === "VIDEO" ? <video src={message.mediaData} controls playsInline className="mb-2 max-h-80 w-full rounded-xl" /> : null}
+                        {message.text ? <p className="whitespace-pre-wrap break-words leading-6">{message.text}</p> : null}
+                        <div className={`ml-8 mt-0.5 flex items-center justify-end gap-1 text-[11px] ${mine ? "text-[#4f9b53]" : "text-slate-400"}`}>
+                          <span>{timeLabel(message.createdAt)}</span>
+                          {mine ? (message.readByOthers ? <CheckCheck size={15} strokeWidth={2.4} /> : <Check size={15} strokeWidth={2.4} />) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-        ) : null}
 
-        <form onSubmit={sendMessage} className="border-t border-yellow-300/10 p-3">
-          <div className="mx-auto flex max-w-4xl items-end gap-2">
-            <input ref={fileRef} type="file" accept="image/*,video/*" onChange={onFileChange} className="hidden" />
-            <button type="button" onClick={() => fileRef.current?.click()} className="rounded-2xl border border-yellow-300/10 bg-white/[0.04] p-3 text-zinc-300 active:scale-95" title="Фото или видео">
-              <Paperclip size={19} />
-            </button>
-            <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Сообщение" className="max-h-36 min-h-12 flex-1 resize-none rounded-2xl border border-yellow-300/10 bg-white/[0.04] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-yellow-300/55" rows={1} />
-            <button disabled={sending || (!text.trim() && !mediaDraft) || !activeChatId} className="rounded-2xl bg-gradient-to-br from-yellow-300 via-amber-500 to-yellow-700 p-3 text-black shadow-lg shadow-amber-950/40 disabled:opacity-50" aria-label="Отправить">
-              {sending ? <Loader2 className="animate-spin" size={19} /> : <Send size={19} />}
-            </button>
-          </div>
-        </form>
-      </section>
+          {mediaDraft ? (
+            <div className="border-t border-slate-200 bg-white px-3 pt-3">
+              <div className="mx-auto flex max-w-4xl items-center gap-3 rounded-2xl bg-[#eef2f7] p-3">
+                {mediaDraft.type === "IMAGE" ? <img src={mediaDraft.data} alt="preview" className="h-16 w-16 rounded-xl object-cover" /> : <video src={mediaDraft.data} className="h-16 w-16 rounded-xl object-cover" muted playsInline />}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-slate-950">{mediaDraft.name}</p>
+                  <p className="text-xs text-slate-500">Готово к отправке</p>
+                </div>
+                <button onClick={() => setMediaDraft(null)} className="grid h-9 w-9 place-items-center rounded-full bg-slate-200 text-slate-500"><X size={17} /></button>
+              </div>
+            </div>
+          ) : null}
+
+          <form onSubmit={sendMessage} className="border-t border-slate-200 bg-white p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+            <div className="mx-auto flex max-w-4xl items-end gap-2">
+              <input ref={fileRef} type="file" accept="image/*,video/*" onChange={onFileChange} className="hidden" />
+              <button type="button" onClick={() => fileRef.current?.click()} className="grid h-11 w-11 place-items-center rounded-full text-slate-400 active:bg-slate-100" title="Фото или видео">
+                <Paperclip size={22} />
+              </button>
+              <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Message" className="max-h-36 min-h-11 flex-1 resize-none rounded-[1.35rem] bg-[#eef2f7] px-4 py-3 text-[15px] text-slate-950 outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-[#229ed9]/20" rows={1} />
+              <button disabled={sending || (!text.trim() && !mediaDraft) || !activeChatId} className="grid h-11 w-11 place-items-center rounded-full bg-[#229ed9] text-white shadow-lg shadow-[#229ed9]/20 disabled:bg-slate-300" aria-label="Отправить">
+                {sending ? <Loader2 className="animate-spin" size={19} /> : <Send size={19} />}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>
 
       {activeCall ? (
-        <div className="pointer-events-none fixed inset-0 z-40 flex items-end justify-center bg-black/45 p-3 sm:items-center">
-          <div className="pointer-events-auto glass w-full max-w-4xl rounded-[2rem] p-4">
+        <div className="pointer-events-none fixed inset-0 z-40 flex items-end justify-center bg-slate-950/55 p-3 sm:items-center">
+          <div className="pointer-events-auto w-full max-w-4xl rounded-[2rem] bg-white p-4 shadow-2xl">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="text-lg font-black text-white">{activeCall.kind === "VIDEO" ? "Видеозвонок" : "Аудиозвонок"}</p>
-                <p className="text-xs text-zinc-400">{callWorking ? "Соединение установлено" : callNotice || "Подключение..."}</p>
+                <p className="text-lg font-bold text-slate-950">{activeCall.kind === "VIDEO" ? "Видеозвонок" : "Аудиозвонок"}</p>
+                <p className="text-xs text-slate-500">{callWorking ? "Соединение установлено" : callNotice || "Подключение..."}</p>
               </div>
               <div className="flex gap-2">
-                <button onClick={toggleMute} className={`rounded-2xl p-3 ${callMuted ? "bg-yellow-500/20 text-yellow-100" : "bg-white/[0.05] text-zinc-200"}`}><Mic size={18} /></button>
-                {activeCall.kind === "VIDEO" ? <button onClick={toggleCamera} className={`rounded-2xl p-3 ${callCameraOff ? "bg-yellow-500/20 text-yellow-100" : "bg-white/[0.05] text-zinc-200"}`}>{callCameraOff ? <VideoOff size={18} /> : <Video size={18} />}</button> : null}
-                <button onClick={() => void endCall("ENDED")} className="rounded-2xl bg-red-500/20 p-3 text-red-100"><PhoneOff size={18} /></button>
+                <button onClick={toggleMute} className={`grid h-11 w-11 place-items-center rounded-full ${callMuted ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-700"}`}><Mic size={18} /></button>
+                {activeCall.kind === "VIDEO" ? <button onClick={toggleCamera} className={`grid h-11 w-11 place-items-center rounded-full ${callCameraOff ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-700"}`}>{callCameraOff ? <VideoOff size={18} /> : <Video size={18} />}</button> : null}
+                <button onClick={() => void endCall("ENDED")} className="grid h-11 w-11 place-items-center rounded-full bg-red-500 text-white"><PhoneOff size={18} /></button>
               </div>
             </div>
 
-            <div className={`grid gap-3 ${activeCall.kind === "VIDEO" ? "sm:grid-cols-2" : "sm:grid-cols-2"}`}>
-              <div className="gold-panel overflow-hidden rounded-[1.5rem] p-3">
-                <p className="mb-2 text-xs font-semibold text-zinc-400">Ты</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="overflow-hidden rounded-[1.5rem] bg-slate-100 p-3">
+                <p className="mb-2 text-xs font-semibold text-slate-500">Ты</p>
                 {activeCall.kind === "VIDEO" ? (
-                  localStream ? <video ref={localVideoRef} autoPlay playsInline muted className="h-[220px] w-full rounded-[1.2rem] bg-black object-cover" /> : <div className="grid h-[220px] place-items-center rounded-[1.2rem] bg-black/40 text-zinc-500">Ожидание камеры</div>
+                  localStream ? <video ref={localVideoRef} autoPlay playsInline muted className="h-[220px] w-full rounded-[1.2rem] bg-black object-cover" /> : <div className="grid h-[220px] place-items-center rounded-[1.2rem] bg-slate-200 text-slate-500">Ожидание камеры</div>
                 ) : (
-                  <div className="grid h-[180px] place-items-center rounded-[1.2rem] bg-black/40">
-                    <div className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-yellow-300 via-amber-500 to-yellow-700 text-2xl font-black text-black">{avatarLabel(currentUser.displayName)}</div>
+                  <div className="grid h-[180px] place-items-center rounded-[1.2rem] bg-slate-200">
+                    <div className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] to-[#229ed9] text-2xl font-bold text-white">{avatarLabel(currentUser.displayName)}</div>
                   </div>
                 )}
               </div>
-              <div className="gold-panel overflow-hidden rounded-[1.5rem] p-3">
-                <p className="mb-2 text-xs font-semibold text-zinc-400">Собеседник</p>
+              <div className="overflow-hidden rounded-[1.5rem] bg-slate-100 p-3">
+                <p className="mb-2 text-xs font-semibold text-slate-500">Собеседник</p>
                 {activeCall.kind === "VIDEO" ? (
-                  remoteStream ? <video ref={remoteVideoRef} autoPlay playsInline className="h-[220px] w-full rounded-[1.2rem] bg-black object-cover" /> : <div className="grid h-[220px] place-items-center rounded-[1.2rem] bg-black/40 text-zinc-500">Ждём подключение собеседника</div>
+                  remoteStream ? <video ref={remoteVideoRef} autoPlay playsInline className="h-[220px] w-full rounded-[1.2rem] bg-black object-cover" /> : <div className="grid h-[220px] place-items-center rounded-[1.2rem] bg-slate-200 text-slate-500">Ждём подключение собеседника</div>
                 ) : (
-                  <div className="grid h-[180px] place-items-center rounded-[1.2rem] bg-black/40">
-                    <div className="grid h-20 w-20 place-items-center rounded-full bg-white/[0.05] text-2xl font-black text-yellow-100">{avatarLabel(activeCall.callerId === currentUser.id ? activeChat?.title : activeCall.caller.displayName)}</div>
+                  <div className="grid h-[180px] place-items-center rounded-[1.2rem] bg-slate-200">
+                    <div className="grid h-20 w-20 place-items-center rounded-full bg-white text-2xl font-bold text-[#229ed9] shadow-sm">{avatarLabel(activeCall.callerId === currentUser.id ? activeChat?.title : activeCall.caller.displayName)}</div>
                   </div>
                 )}
               </div>
