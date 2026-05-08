@@ -181,6 +181,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [callCameraOff, setCallCameraOff] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(false);
   const [audioRouteStatus, setAudioRouteStatus] = useState("Обычный звук");
+  const [mediaPermissionStatus, setMediaPermissionStatus] = useState("Микрофон/камера ещё не проверены");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -227,6 +228,35 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     void checkPushConfig();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    void refreshMediaPermissionStatus();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    async function sendPresence() {
+      if (document.visibilityState !== "visible") return;
+      await fetch("/api/presence", { method: "POST", credentials: "include" }).catch(() => undefined);
+    }
+
+    void sendPresence();
+    const interval = window.setInterval(() => {
+      void sendPresence();
+    }, 15_000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void sendPresence();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onVisibilityChange);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onVisibilityChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -606,6 +636,60 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     callRoleRef.current = null;
   }
 
+  async function refreshMediaPermissionStatus() {
+    const nav = navigator as Navigator & { permissions?: { query: (descriptor: { name: PermissionName }) => Promise<PermissionStatus> } };
+    if (!nav.permissions?.query) {
+      setMediaPermissionStatus("Браузер попросит доступ при первом звонке");
+      return;
+    }
+
+    try {
+      const mic = await nav.permissions.query({ name: "microphone" as PermissionName });
+      const camera = await nav.permissions.query({ name: "camera" as PermissionName });
+      if (mic.state === "granted" && camera.state === "granted") setMediaPermissionStatus("Микрофон и камера разрешены");
+      else if (mic.state === "granted") setMediaPermissionStatus("Микрофон разрешён, камера ещё нет");
+      else if (mic.state === "denied" || camera.state === "denied") setMediaPermissionStatus("Доступ заблокирован в настройках браузера");
+      else setMediaPermissionStatus("Нажми проверку, чтобы заранее разрешить доступ");
+    } catch {
+      setMediaPermissionStatus("Браузер попросит доступ при первом звонке");
+    }
+  }
+
+  async function warmUpCallPermissions(kind: "AUDIO" | "VIDEO" = "VIDEO") {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMediaPermissionStatus("Этот браузер не поддерживает микрофон/камеру");
+      return false;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints(kind));
+      const hasAudio = stream.getAudioTracks().length > 0;
+      const hasVideo = kind === "AUDIO" || stream.getVideoTracks().length > 0;
+      stream.getTracks().forEach((track) => track.stop());
+      if (!hasAudio) {
+        setMediaPermissionStatus("Микрофон не найден или не разрешён");
+        return false;
+      }
+      if (!hasVideo) {
+        setMediaPermissionStatus("Камера не найдена или не разрешена");
+        return false;
+      }
+      setMediaPermissionStatus(kind === "VIDEO" ? "Микрофон и камера разрешены" : "Микрофон разрешён");
+      void refreshMediaPermissionStatus();
+      return true;
+    } catch (error) {
+      const name = error instanceof DOMException ? error.name : "";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        setMediaPermissionStatus("Доступ запрещён. Разреши микрофон/камеру в настройках сайта");
+      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        setMediaPermissionStatus("Микрофон или камера не найдены на устройстве");
+      } else {
+        setMediaPermissionStatus("Не удалось получить доступ к микрофону/камере");
+      }
+      return false;
+    }
+  }
+
   function mediaConstraints(kind: "AUDIO" | "VIDEO"): MediaStreamConstraints {
     return {
       audio: {
@@ -624,7 +708,18 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   async function ensureLocalMedia(kind: "AUDIO" | "VIDEO") {
     const existing = localStreamRef.current;
     if (existing) return existing;
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error("Браузер не поддерживает микрофон/камеру.");
+
     const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints(kind));
+    if (!stream.getAudioTracks().length) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new Error("Микрофон не найден или не разрешён.");
+    }
+    if (kind === "VIDEO" && !stream.getVideoTracks().length) {
+      stream.getTracks().forEach((track) => track.stop());
+      throw new Error("Камера не найдена или не разрешена.");
+    }
+
     stream.getAudioTracks().forEach((track) => {
       track.enabled = true;
     });
@@ -633,6 +728,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     });
     localStreamRef.current = stream;
     setLocalStream(stream);
+    setMediaPermissionStatus(kind === "VIDEO" ? "Микрофон и камера разрешены" : "Микрофон разрешён");
     return stream;
   }
 
@@ -759,9 +855,11 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       setActiveCall(data.call);
       await flushPendingIce("caller");
       setCallNotice("Звоним… собеседник увидит входящий звонок. Если сеть сложная, может понадобиться TURN, но базовый сигналинг исправлен.");
-    } catch {
+    } catch (error) {
       cleanupCallMedia();
-      setCallNotice(kind === "VIDEO" ? "Не удалось начать видеозвонок. Проверь разрешение камеры и микрофона." : "Не удалось начать аудиозвонок. Проверь разрешение микрофона.");
+      const message = error instanceof Error ? error.message : "Проверь разрешение микрофона/камеры.";
+      setCallNotice(`${kind === "VIDEO" ? "Не удалось начать видеозвонок" : "Не удалось начать аудиозвонок"}. ${message}`);
+      setMediaPermissionStatus(message);
     }
   }
 
@@ -812,9 +910,11 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       void remoteAudioRef.current?.play().catch(() => undefined);
       void remoteVideoRef.current?.play().catch(() => undefined);
       setCallNotice("Подключаю звонок...");
-    } catch {
+    } catch (error) {
       cleanupCallMedia();
-      setCallNotice("Не удалось принять звонок.");
+      const message = error instanceof Error ? error.message : "Проверь разрешение микрофона/камеры.";
+      setCallNotice(`Не удалось принять звонок. ${message}`);
+      setMediaPermissionStatus(message);
     }
   }
 
@@ -1105,6 +1205,21 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
               <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
                 <div className="border-b border-slate-100 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-950">Звонки</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">{mediaPermissionStatus}</p>
+                </div>
+                <button onClick={() => void warmUpCallPermissions("AUDIO")} className="flex w-full items-center justify-between px-4 py-3 text-left active:bg-slate-50">
+                  <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Mic size={18} className="text-[#229ed9]" />Разрешить микрофон</span>
+                  <span className="text-sm text-[#229ed9]">Проверить</span>
+                </button>
+                <button onClick={() => void warmUpCallPermissions("VIDEO")} className="flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left active:bg-slate-50">
+                  <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Video size={18} className="text-[#229ed9]" />Разрешить микрофон и камеру</span>
+                  <span className="text-sm text-[#229ed9]">Проверить</span>
+                </button>
+              </div>
+
+              <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
+                <div className="border-b border-slate-100 px-4 py-3">
                   <p className="text-sm font-semibold text-slate-950">Оформление</p>
                   <p className="mt-1 text-xs text-slate-500">Выбери светлую или тёмную тему.</p>
                 </div>
@@ -1245,7 +1360,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
             <p className="text-2xl font-bold tracking-[-0.03em]">{activeCall.caller.displayName}</p>
             <p className="mt-1 text-sm text-white/65">@{activeCall.caller.username}</p>
             <p className="mt-4 text-base font-medium text-white/85">{activeCall.kind === "VIDEO" ? "Входящий видеозвонок" : "Входящий аудиозвонок"}</p>
-            <p className="mt-2 text-xs leading-5 text-white/50">Сначала выбери: принять или отклонить. Камера/микрофон включатся только после принятия.</p>
+            <p className="mt-2 text-xs leading-5 text-white/50">Сначала выбери: принять или отклонить. После принятия браузер попросит микрофон/камеру и обычно запомнит разрешение для Pirogram.</p>
             <div className="mt-7 grid grid-cols-2 gap-4">
               <button onClick={() => void endCall("DECLINED")} className="flex flex-col items-center gap-2 rounded-3xl bg-red-500 px-4 py-4 font-semibold text-white active:scale-95">
                 <PhoneOff size={25} /> Отклонить

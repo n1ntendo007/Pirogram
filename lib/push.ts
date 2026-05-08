@@ -21,8 +21,15 @@ export function getVapidPublicKey() {
 export async function notifyChatMembers(chatId: string, senderId: string, payload: { title: string; body: string; url?: string }) {
   if (!configureWebPush()) return;
 
+  // Pirogram считает пользователя онлайн, если приложение недавно отправляло heartbeat.
+  // Тогда push не нужен: человек и так видит чат/звонок внутри приложения.
+  const offlineCutoff = new Date(Date.now() - 45_000);
   const members = await db.chatMember.findMany({
-    where: { chatId, userId: { not: senderId } },
+    where: {
+      chatId,
+      userId: { not: senderId },
+      user: { updatedAt: { lt: offlineCutoff } }
+    },
     select: { userId: true }
   });
   if (!members.length) return;
