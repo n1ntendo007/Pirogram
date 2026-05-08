@@ -802,7 +802,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
   return (
     <main className="tg-main h-dvh w-full overflow-hidden bg-[#dfe8f2] text-[#111827]">
-      <div className="mx-auto flex h-full max-w-[1500px] bg-[#f6f8fb] shadow-2xl shadow-slate-900/10">
+      <div className="tg-shell mx-auto flex h-full max-w-[1500px] shadow-2xl shadow-slate-900/10">
         <aside className={`tg-sidebar ${showSidebar ? "flex" : "hidden"} h-full w-full shrink-0 flex-col border-r border-slate-200 bg-white lg:flex lg:w-[390px]`}>
           <div className="tg-topbar border-b border-slate-200 bg-[#f8fbff]/95 px-4 pb-3 pt-[max(14px,env(safe-area-inset-top))] backdrop-blur-xl">
             {activeTab === "chats" ? (
@@ -812,15 +812,15 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                     {editingChats ? "Done" : "Edit"}
                   </button>
                   <h1 className="text-[18px] font-bold tracking-[-0.02em] text-slate-950">Chats</h1>
-                  <button type="button" onClick={() => { setActiveTab("settings"); setMobileListOpen(true); }} className="grid h-9 w-9 place-items-center rounded-full text-[#229ed9] active:bg-slate-100" aria-label="Настройки">
+                  <button type="button" onClick={() => { setActiveTab("settings"); setMobileListOpen(true); }} className="tg-icon-btn grid h-9 w-9 place-items-center rounded-full active:bg-slate-100" aria-label="Настройки">
                     <Smartphone size={19} />
                   </button>
                 </div>
 
                 <label className="tg-search flex h-10 items-center gap-2 rounded-xl bg-[#eef2f7] px-3 text-[15px] text-slate-500 shadow-inner shadow-slate-200/50 focus-within:ring-2 focus-within:ring-[#229ed9]/20">
                   <Search size={17} />
-                  <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search or @username" className="min-w-0 flex-1 bg-transparent text-slate-900 outline-none placeholder:text-slate-400" autoCapitalize="none" />
-                  {searchQuery ? <button type="button" onClick={() => { setSearchQuery(""); setSearchResults([]); }} className="grid h-5 w-5 place-items-center rounded-full bg-slate-300 text-white"><X size={13} /></button> : null}
+                  <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search or @username" className="tg-input-darkfix min-w-0 flex-1 bg-transparent outline-none" autoCapitalize="none" />
+                  {searchQuery ? <button type="button" onClick={() => { setSearchQuery(""); setSearchResults([]); }} className="grid h-5 w-5 place-items-center rounded-full bg-black/20 text-white"><X size={13} /></button> : null}
                 </label>
 
                 {searchQuery.trim().length >= 2 ? (
@@ -844,13 +844,13 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
             ) : activeTab === "settings" ? (
               <div className="flex h-11 items-center justify-between">
                 <button type="button" onClick={() => setActiveTab("chats")} className="rounded-full px-1 text-[15px] font-medium text-[#229ed9] active:opacity-60">Chats</button>
-                <h1 className="text-[18px] font-bold tracking-[-0.02em] text-slate-950">Settings</h1>
+                <h1 className="tg-title text-[18px] font-bold tracking-[-0.02em]">Settings</h1>
                 <span className="w-12" />
               </div>
             ) : (
               <div className="flex h-11 items-center justify-between">
                 <button type="button" onClick={() => setActiveTab("chats")} className="rounded-full px-1 text-[15px] font-medium text-[#229ed9] active:opacity-60">Chats</button>
-                <h1 className="text-[18px] font-bold tracking-[-0.02em] text-slate-950">Calls</h1>
+                <h1 className="tg-title text-[18px] font-bold tracking-[-0.02em]">Calls</h1>
                 <span className="w-12" />
               </div>
             )}
@@ -864,7 +864,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                 const active = chat.id === activeChatId;
                 const mine = lastMessage?.senderId === currentUser.id;
                 return (
-                  <div key={chat.id} className={`tg-chat-row flex w-full items-center gap-2 px-3 py-1.5 transition ${active ? "bg-[#e8f4fc]" : "active:bg-slate-100 lg:hover:bg-slate-50"}`}>
+                  <div key={chat.id} className={`tg-chat-row flex w-full items-center gap-2 px-3 py-1.5 transition ${active ? "tg-chat-row-active" : "active:bg-slate-100"}`}>
                     {editingChats && chat.type !== "SAVED" ? (
                       <button
                         type="button"
@@ -910,19 +910,19 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               })}
             </div>
           ) : activeTab === "settings" ? (
-            <div className="tg-settings no-scrollbar flex-1 overflow-y-auto bg-[#f2f6fb] p-4">
-              <div className="mb-4 rounded-3xl bg-white p-4 shadow-sm">
+            <div className="tg-settings no-scrollbar flex-1 overflow-y-auto p-4">
+              <div className="tg-card mb-4 rounded-3xl p-4 shadow-sm">
                 <div className="flex items-center gap-4">
                   {currentUser.avatarData ? <img src={currentUser.avatarData} alt="" className="h-16 w-16 rounded-full object-cover" /> : <div className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-2xl font-bold text-white">{avatarLabel(currentUser.displayName)}</div>}
                   <div className="min-w-0">
                     <p className="truncate text-xl font-bold text-slate-950">{currentUser.displayName}</p>
                     <p className="truncate text-sm text-[#229ed9]">@{currentUser.username}</p>
-                    {currentUser.login ? <p className="truncate text-xs text-slate-500">Логин: {currentUser.login}</p> : null}
+                    {currentUser.login ? <p className="tg-muted truncate text-xs">Логин: {currentUser.login}</p> : null}
                   </div>
                 </div>
               </div>
 
-              <div className="mb-4 overflow-hidden rounded-3xl bg-white shadow-sm">
+              <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
                 <div className="border-b border-slate-100 px-4 py-3">
                   <p className="text-sm font-semibold text-slate-950">Уведомления</p>
                   <p className="mt-1 text-xs leading-5 text-slate-500">{pushStatus}</p>
@@ -938,7 +938,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                 </button>
               </div>
 
-              <div className="mb-4 overflow-hidden rounded-3xl bg-white shadow-sm">
+              <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
                 <div className="border-b border-slate-100 px-4 py-3">
                   <p className="text-sm font-semibold text-slate-950">Оформление</p>
                   <p className="mt-1 text-xs text-slate-500">Выбери светлую или тёмную тему.</p>
@@ -953,16 +953,16 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                 </button>
               </div>
 
-              <div className="overflow-hidden rounded-3xl bg-white shadow-sm">
+              <div className="tg-card overflow-hidden rounded-3xl shadow-sm">
                 <button onClick={logout} className="flex w-full items-center justify-between px-4 py-3 text-left active:bg-red-50">
                   <span className="inline-flex items-center gap-3 text-[15px] font-semibold text-red-500"><LogOut size={18} />Выйти из аккаунта</span>
                 </button>
               </div>
             </div>
           ) : (
-            <div className="tg-settings flex flex-1 flex-col items-center justify-center bg-[#f2f6fb] p-6 text-center">
+            <div className="tg-settings flex flex-1 flex-col items-center justify-center p-6 text-center">
               <Phone size={38} className="mb-3 text-[#229ed9]" />
-              <p className="text-lg font-bold text-slate-950">Звонки</p>
+              <p className="tg-title text-lg font-bold">Звонки</p>
               <p className="mt-2 max-w-xs text-sm leading-6 text-slate-500">История звонков появится позже. Сейчас звонки запускаются прямо из открытого чата.</p>
             </div>
           )}
@@ -976,30 +976,30 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
         <section className={`tg-chat-panel ${showChat ? "flex" : "hidden"} h-full min-w-0 flex-1 flex-col bg-[#e6edf5] lg:flex`}>
           <header className="tg-chat-header sticky top-0 z-30 flex min-h-[64px] shrink-0 items-center gap-3 border-b border-slate-200 bg-white/95 px-3 pb-2 pt-[calc(env(safe-area-inset-top)+0.55rem)] backdrop-blur-xl sm:px-4 lg:min-h-[64px] lg:py-0">
-            <button onClick={() => setMobileListOpen(true)} className="grid h-10 w-10 place-items-center rounded-full text-[#229ed9] active:bg-slate-100 lg:hidden">
+            <button onClick={() => setMobileListOpen(true)} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100 lg:hidden">
               <ArrowLeft size={21} />
             </button>
             {activeChat?.avatarData ? <img src={activeChat.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-sm font-bold text-white">{avatarLabel(activeChat?.title)}</div>}
             <div className="min-w-0 flex-1">
-              <h2 className="truncate text-[16px] font-semibold text-slate-950">{activeChat?.title || "Выберите чат"}</h2>
-              <p className="truncate text-[13px] text-[#229ed9]">{activeChat?.username ? `@${activeChat.username}` : `@${currentUser.username}`}</p>
+              <h2 className="tg-title truncate text-[16px] font-semibold">{activeChat?.title || "Выберите чат"}</h2>
+              <p className="tg-accent truncate text-[13px]">{activeChat?.username ? `@${activeChat.username}` : `@${currentUser.username}`}</p>
             </div>
             <div className="flex gap-1">
-              <button onClick={() => void startCall("AUDIO")} disabled={!activeChatId} className="grid h-10 w-10 place-items-center rounded-full text-[#229ed9] active:bg-slate-100 disabled:opacity-40" title="Аудиозвонок">
+              <button onClick={() => void startCall("AUDIO")} disabled={!activeChatId} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100 disabled:opacity-40" title="Аудиозвонок">
                 <Phone size={20} />
               </button>
-              <button onClick={() => void startCall("VIDEO")} disabled={!activeChatId} className="grid h-10 w-10 place-items-center rounded-full text-[#229ed9] active:bg-slate-100 disabled:opacity-40" title="Видеозвонок">
+              <button onClick={() => void startCall("VIDEO")} disabled={!activeChatId} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100 disabled:opacity-40" title="Видеозвонок">
                 <Video size={20} />
               </button>
             </div>
           </header>
 
           {activeCall ? (
-            <div className="border-b border-slate-200 bg-white px-4 py-3">
+            <div className="tg-inline-panel border-b border-slate-200 px-4 py-3">
               <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 rounded-2xl bg-[#e8f4fc] px-4 py-3 text-sm text-slate-700">
                 <div className="min-w-0">
-                  <p className="truncate font-semibold text-slate-950">{activeCall.kind === "VIDEO" ? "Видеозвонок" : "Аудиозвонок"}</p>
-                  <p className="truncate text-xs text-slate-500">{activeCall.callerId === currentUser.id ? "Ты звонишь" : `${activeCall.caller.displayName} звонит`} · {activeCall.status}</p>
+                  <p className="tg-title truncate font-semibold">{activeCall.kind === "VIDEO" ? "Видеозвонок" : "Аудиозвонок"}</p>
+                  <p className="tg-muted truncate text-xs">{activeCall.callerId === currentUser.id ? "Ты звонишь" : `${activeCall.caller.displayName} звонит`} · {activeCall.status}</p>
                 </div>
                 <div className="flex gap-2">
                   {activeCall.callerId !== currentUser.id && activeCall.status === "RINGING" ? (
@@ -1010,9 +1010,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               </div>
             </div>
           ) : null}
-          {callNotice ? <p className="border-b border-slate-200 bg-white px-4 py-2 text-center text-xs text-slate-500">{callNotice}</p> : null}
+          {callNotice ? <p className="tg-inline-panel tg-muted border-b border-slate-200 px-4 py-2 text-center text-xs">{callNotice}</p> : null}
 
-          <div ref={scrollRef} className="no-scrollbar flex-1 overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(34,158,217,.12),transparent_35%),linear-gradient(180deg,#dfe8f2,#d8e5f0)] px-3 py-4 sm:px-5">
+          <div ref={scrollRef} className="tg-message-area no-scrollbar flex-1 overflow-y-auto px-3 py-4 sm:px-5">
             <div className="mx-auto flex max-w-4xl flex-col gap-2">
               {messages.map((message, index) => {
                 const mine = message.senderId === currentUser.id;
@@ -1022,16 +1022,16 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                   <div key={message.id}>
                     {showDay ? (
                       <div className="my-3 flex justify-center">
-                        <span className="rounded-full bg-black/15 px-3 py-1 text-[12px] font-medium text-white shadow-sm backdrop-blur">{dayLabel(message.createdAt)}</span>
+                        <span className="tg-day-chip rounded-full px-3 py-1 text-[12px] font-medium backdrop-blur">{dayLabel(message.createdAt)}</span>
                       </div>
                     ) : null}
                     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[86%] rounded-[1.15rem] px-3.5 py-2 text-[15px] shadow-sm ${mine ? "rounded-br-[0.35rem] bg-[#d9fdd3] text-slate-950" : "rounded-bl-[0.35rem] bg-white text-slate-950"}`}>
-                        {!mine ? <p className="mb-1 text-xs font-semibold text-[#229ed9]">{message.sender?.displayName || message.sender?.username || "Pirogram"}</p> : null}
-                        {message.mediaData && message.type === "IMAGE" ? <img src={message.mediaData} alt={message.mediaName || "Фото"} className="mb-2 max-h-80 w-full rounded-xl object-cover" /> : null}
-                        {message.mediaData && message.type === "VIDEO" ? <video src={message.mediaData} controls playsInline className="mb-2 max-h-80 w-full rounded-xl" /> : null}
+                      <div className={`tg-bubble max-w-[86%] text-[15px] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"}`}>
+                        {!mine ? <p className="tg-bubble-author mb-1 text-xs font-semibold">{message.sender?.displayName || message.sender?.username || "Pirogram"}</p> : null}
+                        {message.mediaData && message.type === "IMAGE" ? <img src={message.mediaData} alt={message.mediaName || "Фото"} className="tg-bubble-media mb-2 max-h-80 w-full object-cover" /> : null}
+                        {message.mediaData && message.type === "VIDEO" ? <video src={message.mediaData} controls playsInline className="tg-bubble-media mb-2 max-h-80 w-full" /> : null}
                         {message.text ? <p className="whitespace-pre-wrap break-words leading-6">{message.text}</p> : null}
-                        <div className={`ml-8 mt-0.5 flex items-center justify-end gap-1 text-[11px] ${mine ? "text-[#4f9b53]" : "text-slate-400"}`}>
+                        <div className="tg-bubble-meta ml-8 mt-1 flex items-center justify-end gap-1 text-[11px]">
                           <span>{timeLabel(message.createdAt)}</span>
                           {mine ? (message.readByOthers ? <CheckCheck size={15} strokeWidth={2.4} /> : <Check size={15} strokeWidth={2.4} />) : null}
                         </div>
@@ -1044,25 +1044,25 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
           </div>
 
           {mediaDraft ? (
-            <div className="border-t border-slate-200 bg-white px-3 pt-3">
-              <div className="mx-auto flex max-w-4xl items-center gap-3 rounded-2xl bg-[#eef2f7] p-3">
+            <div className="tg-compose border-t border-slate-200 px-3 pt-3">
+              <div className="tg-preview-card mx-auto flex max-w-4xl items-center gap-3 rounded-2xl p-3">
                 {mediaDraft.type === "IMAGE" ? <img src={mediaDraft.data} alt="preview" className="h-16 w-16 rounded-xl object-cover" /> : <video src={mediaDraft.data} className="h-16 w-16 rounded-xl object-cover" muted playsInline />}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-slate-950">{mediaDraft.name}</p>
-                  <p className="text-xs text-slate-500">Готово к отправке</p>
+                  <p className="tg-muted text-xs">Готово к отправке</p>
                 </div>
-                <button onClick={() => setMediaDraft(null)} className="grid h-9 w-9 place-items-center rounded-full bg-slate-200 text-slate-500"><X size={17} /></button>
+                <button onClick={() => setMediaDraft(null)} className="grid h-9 w-9 place-items-center rounded-full bg-black/10 text-slate-500"><X size={17} /></button>
               </div>
             </div>
           ) : null}
 
-          <form onSubmit={sendMessage} className="border-t border-slate-200 bg-white p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+          <form onSubmit={sendMessage} className="tg-compose border-t border-slate-200 p-3 pb-[max(12px,env(safe-area-inset-bottom))]">
             <div className="mx-auto flex max-w-4xl items-end gap-2">
               <input ref={fileRef} type="file" accept="image/*,video/*" onChange={onFileChange} className="hidden" />
-              <button type="button" onClick={() => fileRef.current?.click()} className="grid h-11 w-11 place-items-center rounded-full text-slate-400 active:bg-slate-100" title="Фото или видео">
+              <button type="button" onClick={() => fileRef.current?.click()} className="grid h-11 w-11 place-items-center rounded-full text-slate-400 active:bg-slate-100 tg-icon-btn" title="Фото или видео">
                 <Paperclip size={22} />
               </button>
-              <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Message" className="max-h-36 min-h-11 flex-1 resize-none rounded-[1.35rem] bg-[#eef2f7] px-4 py-3 text-[15px] text-slate-950 outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-[#229ed9]/20" rows={1} />
+              <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Message" className="tg-input-darkfix max-h-36 min-h-11 flex-1 resize-none rounded-[1.35rem] px-4 py-3 text-[15px] outline-none focus:ring-2 focus:ring-[#229ed9]/20" rows={1} />
               <button disabled={sending || (!text.trim() && !mediaDraft) || !activeChatId} className="grid h-11 w-11 place-items-center rounded-full bg-[#229ed9] text-white shadow-lg shadow-[#229ed9]/20 disabled:bg-slate-300" aria-label="Отправить">
                 {sending ? <Loader2 className="animate-spin" size={19} /> : <Send size={19} />}
               </button>
@@ -1073,11 +1073,11 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
       {activeCall ? (
         <div className="pointer-events-none fixed inset-0 z-40 flex items-end justify-center bg-slate-950/55 p-3 sm:items-center">
-          <div className="pointer-events-auto w-full max-w-4xl rounded-[2rem] bg-white p-4 shadow-2xl">
+          <div className="tg-modal pointer-events-auto w-full max-w-4xl rounded-[2rem] p-4 shadow-2xl">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <p className="text-lg font-bold text-slate-950">{activeCall.kind === "VIDEO" ? "Видеозвонок" : "Аудиозвонок"}</p>
-                <p className="text-xs text-slate-500">{callWorking ? "Соединение установлено" : callNotice || "Подключение..."}</p>
+                <p className="tg-title text-lg font-bold">{activeCall.kind === "VIDEO" ? "Видеозвонок" : "Аудиозвонок"}</p>
+                <p className="tg-muted text-xs">{callWorking ? "Соединение установлено" : callNotice || "Подключение..."}</p>
               </div>
               <div className="flex gap-2">
                 <button onClick={toggleMute} className={`grid h-11 w-11 place-items-center rounded-full ${callMuted ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-700"}`}><Mic size={18} /></button>
@@ -1088,7 +1088,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="overflow-hidden rounded-[1.5rem] bg-slate-100 p-3">
-                <p className="mb-2 text-xs font-semibold text-slate-500">Ты</p>
+                <p className="tg-muted mb-2 text-xs font-semibold">Ты</p>
                 {activeCall.kind === "VIDEO" ? (
                   localStream ? <video ref={localVideoRef} autoPlay playsInline muted className="h-[220px] w-full rounded-[1.2rem] bg-black object-cover" /> : <div className="grid h-[220px] place-items-center rounded-[1.2rem] bg-slate-200 text-slate-500">Ожидание камеры</div>
                 ) : (
@@ -1098,7 +1098,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                 )}
               </div>
               <div className="overflow-hidden rounded-[1.5rem] bg-slate-100 p-3">
-                <p className="mb-2 text-xs font-semibold text-slate-500">Собеседник</p>
+                <p className="tg-muted mb-2 text-xs font-semibold">Собеседник</p>
                 {activeCall.kind === "VIDEO" ? (
                   remoteStream ? <video ref={remoteVideoRef} autoPlay playsInline className="h-[220px] w-full rounded-[1.2rem] bg-black object-cover" /> : <div className="grid h-[220px] place-items-center rounded-[1.2rem] bg-slate-200 text-slate-500">Ждём подключение собеседника</div>
                 ) : (
