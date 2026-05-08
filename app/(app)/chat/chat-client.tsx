@@ -1293,11 +1293,12 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
           {callNotice ? <p className="tg-inline-panel tg-muted border-b border-slate-200 px-4 py-2 text-center text-xs">{callNotice}</p> : null}
 
           <div ref={scrollRef} className="tg-message-area no-scrollbar flex-1 overflow-y-auto px-3 py-4 sm:px-5">
-            <div className="mx-auto flex max-w-4xl flex-col gap-2">
+            <div className="tg-message-stack mx-auto flex max-w-4xl flex-col gap-1.5">
               {messages.map((message, index) => {
                 const mine = message.senderId === currentUser.id;
                 const prev = messages[index - 1];
                 const showDay = !prev || dayLabel(prev.createdAt) !== dayLabel(message.createdAt);
+                const previousSameSender = !showDay && prev?.senderId === message.senderId;
                 return (
                   <div key={message.id}>
                     {showDay ? (
@@ -1306,8 +1307,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                       </div>
                     ) : null}
                     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                      <div className={`tg-bubble max-w-[86%] text-[15px] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"}`}>
-                        {!mine ? <p className="tg-bubble-author mb-1 text-xs font-semibold">{message.sender?.displayName || message.sender?.username || "Pirogram"}</p> : null}
+                      <div className={`tg-bubble max-w-[78%] text-[14px] sm:max-w-[62%] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"} ${previousSameSender ? "tg-bubble-tight" : ""}`}>
+                        {!mine && !previousSameSender ? <p className="tg-bubble-author mb-1 text-[11px] font-semibold">{message.sender?.displayName || message.sender?.username || "Pirogram"}</p> : null}
                         {message.mediaData && message.type === "IMAGE" ? <img src={message.mediaData} alt={message.mediaName || "Фото"} className="tg-bubble-media mb-2 max-h-80 w-full object-cover" /> : null}
                         {message.mediaData && message.type === "VIDEO" ? <video src={message.mediaData} controls playsInline className="tg-bubble-media mb-2 max-h-80 w-full" /> : null}
                         {message.text ? <p className="whitespace-pre-wrap break-words leading-6">{message.text}</p> : null}
@@ -1325,8 +1326,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
           {mediaDraft ? (
             <div className="tg-compose border-t border-slate-200 px-2 pt-2">
-              <div className="tg-preview-card mx-auto flex max-w-4xl items-center gap-2 rounded-2xl p-2">
-                {mediaDraft.type === "IMAGE" ? <img src={mediaDraft.data} alt="preview" className="h-12 w-12 rounded-xl object-cover" /> : <video src={mediaDraft.data} className="h-12 w-12 rounded-xl object-cover" muted playsInline />}
+              <div className="tg-preview-card mx-auto flex max-w-4xl items-center gap-2 rounded-2xl p-1.5">
+                {mediaDraft.type === "IMAGE" ? <img src={mediaDraft.data} alt="preview" className="h-10 w-10 rounded-xl object-cover" /> : <video src={mediaDraft.data} className="h-10 w-10 rounded-xl object-cover" muted playsInline />}
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-slate-950">{mediaDraft.name}</p>
                   <p className="tg-muted text-xs">Готово к отправке</p>
@@ -1336,14 +1337,14 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
             </div>
           ) : null}
 
-          <form onSubmit={sendMessage} className="tg-compose border-t border-slate-200 px-2 py-1.5 pb-[max(6px,env(safe-area-inset-bottom))]">
-            <div className="mx-auto flex max-w-4xl items-end gap-1.5">
+          <form onSubmit={sendMessage} className="tg-compose tg-compose-compact border-t border-slate-200 px-2 py-1 pb-[max(4px,env(safe-area-inset-bottom))]">
+            <div className="tg-compose-inner mx-auto flex max-w-4xl items-end gap-1.5">
               <input ref={fileRef} type="file" accept="image/*,video/*" onChange={onFileChange} className="hidden" />
-              <button type="button" onClick={() => fileRef.current?.click()} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-400 active:bg-slate-100 tg-icon-btn" title="Фото или видео">
+              <button type="button" onClick={() => fileRef.current?.click()} className="tg-compose-btn grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 active:bg-slate-100 tg-icon-btn" title="Фото или видео">
                 <Paperclip size={20} />
               </button>
-              <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Message" className="tg-input-darkfix max-h-28 min-h-9 flex-1 resize-none rounded-[1.1rem] px-3 py-2 text-[14px] leading-5 outline-none focus:ring-2 focus:ring-[#229ed9]/20" rows={1} />
-              <button disabled={sending || (!text.trim() && !mediaDraft) || !activeChatId} className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#229ed9] text-white shadow-lg shadow-[#229ed9]/20 disabled:bg-slate-300" aria-label="Отправить">
+              <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Message" className="tg-input-darkfix tg-compose-textarea max-h-24 min-h-8 flex-1 resize-none rounded-[1rem] px-3 py-1.5 text-[14px] leading-5 outline-none focus:ring-2 focus:ring-[#229ed9]/20" rows={1} />
+              <button disabled={sending || (!text.trim() && !mediaDraft) || !activeChatId} className="tg-send-btn grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#229ed9] text-white shadow-lg shadow-[#229ed9]/20 disabled:bg-slate-300" aria-label="Отправить">
                 {sending ? <Loader2 className="animate-spin" size={19} /> : <Send size={17} />}
               </button>
             </div>
