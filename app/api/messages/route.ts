@@ -29,6 +29,25 @@ const selectMessage = {
   sender: { select: { id: true, username: true, displayName: true, avatarData: true } }
 } as const;
 
+async function getReaders(chatId: string) {
+  return db.chatMember.findMany({
+    where: { chatId },
+    select: { userId: true, lastReadAt: true }
+  });
+}
+
+function attachReadReceipts<T extends { id: string; senderId: string | null; createdAt: Date }>(messages: T[], readers: { userId: string; lastReadAt: Date | null }[]) {
+  return messages.map((message) => {
+    const otherReaders = readers.filter((reader) => reader.userId !== message.senderId);
+    const readByOthers = Boolean(
+      message.senderId &&
+      otherReaders.length > 0 &&
+      otherReaders.every((reader) => reader.lastReadAt && reader.lastReadAt.getTime() >= message.createdAt.getTime())
+    );
+    return { ...message, readByOthers };
+  });
+}
+
 export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) return jsonError("Не авторизован.", 401);
@@ -36,10 +55,28 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const chatId = searchParams.get("chatId");
   const after = searchParams.get("after");
+  const statusOnly = searchParams.get("statusOnly") === "1";
   if (!chatId) return jsonError("chatId обязателен.", 400);
 
   const membership = await db.chatMember.findUnique({ where: { userId_chatId: { userId: user.id, chatId } } });
   if (!membership) return jsonError("Нет доступа к чату.", 403);
+
+  await db.chatMember.update({
+    where: { userId_chatId: { userId: user.id, chatId } },
+    data: { lastReadAt: new Date() }
+  });
+
+  const readers = await getReaders(chatId);
+
+  if (statusOnly) {
+    const messages = await db.message.findMany({
+      where: { chatId, senderId: user.id },
+      orderBy: { createdAt: "asc" },
+      take: 200,
+      select: { id: true, senderId: true, createdAt: true }
+    });
+    return NextResponse.json({ receipts: attachReadReceipts(messages, readers).map((message) => ({ id: message.id, readByOthers: message.readByOthers })) });
+  }
 
   const messages = await db.message.findMany({
     where: {
@@ -51,7 +88,7 @@ export async function GET(request: Request) {
     select: selectMessage
   });
 
-  return NextResponse.json({ messages });
+  return NextResponse.json({ messages: attachReadReceipts(messages, readers) });
 }
 
 export async function POST(request: Request) {
@@ -86,6 +123,11 @@ export async function POST(request: Request) {
     select: selectMessage
   });
 
+  await db.chatMember.update({
+    where: { userId_chatId: { userId: user.id, chatId: parsed.data.chatId } },
+    data: { lastReadAt: new Date() }
+  });
+
   await db.chat.update({ where: { id: parsed.data.chatId }, data: { updatedAt: new Date() } });
 
   await notifyChatMembers(parsed.data.chatId, user.id, {
@@ -94,5 +136,5 @@ export async function POST(request: Request) {
     url: "/chat"
   }).catch(() => undefined);
 
-  return NextResponse.json({ message });
+  return NextResponse.json({ message: { ...message, readByOthers: false } });
 }

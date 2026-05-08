@@ -17,7 +17,7 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   const ip = getClientIp(request);
-  const limit = rateLimit(`login:${ip}`, 12, 10 * 60 * 1000);
+  const limit = rateLimit(`login:${ip}`, 60, 10 * 60 * 1000);
   if (!limit.ok) return jsonError("Слишком много попыток входа. Попробуйте позже.", 429);
 
   const body = await request.json().catch(() => null);

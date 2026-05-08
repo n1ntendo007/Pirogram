@@ -32,7 +32,11 @@ export async function GET() {
     orderBy: { updatedAt: "desc" },
     include: {
       members: {
-        select: { user: { select: { id: true, username: true, displayName: true, avatarData: true } } }
+        select: {
+          userId: true,
+          lastReadAt: true,
+          user: { select: { id: true, username: true, displayName: true, avatarData: true } }
+        }
       },
       messages: {
         orderBy: { createdAt: "desc" },
@@ -42,8 +46,17 @@ export async function GET() {
     }
   });
 
-  const normalized = chats.map((chat) => {
+  const normalized = await Promise.all(chats.map(async (chat) => {
     const other = chat.members.map((m) => m.user).find((member) => member.id !== user.id);
+    const me = chat.members.find((member) => member.userId === user.id);
+    const unreadCount = await db.message.count({
+      where: {
+        chatId: chat.id,
+        senderId: { not: user.id },
+        ...(me?.lastReadAt ? { createdAt: { gt: me.lastReadAt } } : {})
+      }
+    });
+
     return {
       id: chat.id,
       type: chat.type,
@@ -51,10 +64,11 @@ export async function GET() {
       username: chat.type === "PRIVATE" ? other?.username : null,
       avatarData: chat.type === "PRIVATE" ? other?.avatarData : chat.avatarData,
       updatedAt: chat.updatedAt,
+      unreadCount,
       members: chat.members.map((member) => member.user),
       messages: chat.messages
     };
-  });
+  }));
 
   return NextResponse.json({ chats: normalized });
 }
@@ -87,6 +101,7 @@ export async function POST(request: Request) {
   const existingChatId = [...byChat.entries()].find(([, ids]) => ids.has(user.id) && ids.has(target.id))?.[0];
 
   if (existingChatId) {
+    await db.chatMember.update({ where: { userId_chatId: { userId: user.id, chatId: existingChatId } }, data: { lastReadAt: new Date() } });
     const chat = await db.chat.findUnique({
       where: { id: existingChatId },
       include: { messages: { orderBy: { createdAt: "desc" }, take: 1, select: publicMessageSelect() } }
@@ -99,6 +114,7 @@ export async function POST(request: Request) {
         username: target.username,
         avatarData: target.avatarData,
         updatedAt: chat?.updatedAt,
+        unreadCount: 0,
         members: [target, user],
         messages: chat?.messages ?? []
       }
@@ -110,7 +126,7 @@ export async function POST(request: Request) {
       type: "PRIVATE",
       members: {
         create: [
-          { userId: user.id, role: "member" },
+          { userId: user.id, role: "member", lastReadAt: new Date() },
           { userId: target.id, role: "member" }
         ]
       }
@@ -126,6 +142,7 @@ export async function POST(request: Request) {
       username: target.username,
       avatarData: target.avatarData,
       updatedAt: chat.updatedAt,
+      unreadCount: 0,
       members: [target, user],
       messages: chat.messages
     }

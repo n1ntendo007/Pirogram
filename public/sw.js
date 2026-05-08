@@ -1,5 +1,5 @@
-const CACHE_NAME = "pirogram-shell-v2";
-const SHELL = ["/", "/login", "/register", "/manifest.webmanifest", "/icons/icon-192.png"];
+const CACHE_NAME = "pirogram-shell-v5";
+const SHELL = ["/", "/manifest.webmanifest", "/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL)).catch(() => undefined));

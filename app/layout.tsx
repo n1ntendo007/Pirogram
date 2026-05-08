@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Pirogram",
-  description: "Private mobile-first messenger with chats, media, calls and PWA support.",
+  description: "Dark gold mobile-first messenger with chats, media, calls, read receipts and PWA support.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#050613",
+  themeColor: "#facc15",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,

@@ -18,7 +18,7 @@ const schema = z.object({
 
 export async function POST(request: Request) {
   const ip = getClientIp(request);
-  const limit = rateLimit(`register:${ip}`, 8, 10 * 60 * 1000);
+  const limit = rateLimit(`register:${ip}`, 30, 10 * 60 * 1000);
   if (!limit.ok) return jsonError("Слишком много попыток. Попробуйте позже.", 429);
 
   const body = await request.json().catch(() => null);
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
       data: {
         type: "SAVED",
         title: "Избранное",
-        members: { create: { userId: createdUser.id, role: "owner" } }
+        members: { create: { userId: createdUser.id, role: "owner", lastReadAt: new Date() } }
       }
     });
 

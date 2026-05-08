@@ -3,7 +3,7 @@ import { jwtVerify } from "jose";
 import { SESSION_COOKIE } from "@/lib/session";
 
 const protectedPrefixes = ["/chat"];
-const authPages = ["/login", "/register"];
+const oldAuthPages = ["/login", "/register"];
 
 function secretKey() {
   const secret = process.env.JWT_SECRET || "";
@@ -24,21 +24,21 @@ async function hasValidSession(request: NextRequest) {
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   const isProtected = protectedPrefixes.some((prefix) => path.startsWith(prefix));
-  const isAuthPage = authPages.includes(path);
+  const isOldAuthPage = oldAuthPages.includes(path);
 
-  if (!isProtected && !isAuthPage) return NextResponse.next();
+  if (!isProtected && !isOldAuthPage) return NextResponse.next();
 
   const loggedIn = await hasValidSession(request);
 
-  if (isProtected && !loggedIn) {
+  if (isOldAuthPage) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
+    url.pathname = loggedIn ? "/chat" : "/";
     return NextResponse.redirect(url);
   }
 
-  if (isAuthPage && loggedIn) {
+  if (isProtected && !loggedIn) {
     const url = request.nextUrl.clone();
-    url.pathname = "/chat";
+    url.pathname = "/";
     return NextResponse.redirect(url);
   }
 
