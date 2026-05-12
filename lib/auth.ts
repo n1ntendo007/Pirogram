@@ -13,6 +13,7 @@ export async function getCurrentUser() {
       login: true,
       displayName: true,
       avatarData: true,
+      aliases: { select: { username: true }, orderBy: { createdAt: "asc" } },
       createdAt: true
     }
   });

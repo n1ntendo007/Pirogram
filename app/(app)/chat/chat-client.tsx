@@ -2,7 +2,9 @@
 
 import {
   ArrowLeft,
+  AtSign,
   Bell,
+  Camera,
   Check,
   CheckCheck,
   Loader2,
@@ -21,8 +23,10 @@ import {
   Smartphone,
   TestTube2,
   Trash2,
+  Wrench,
   UserPlus,
   Users,
+  UserRound,
   Sun,
   Volume2,
   VolumeX,
@@ -39,6 +43,9 @@ type User = {
   login?: string;
   displayName: string;
   avatarData: string | null;
+  aliases?: { username: string }[];
+  isAdmin?: boolean;
+  maintenanceMode?: boolean;
   createdAt?: string;
 };
 
@@ -110,6 +117,14 @@ type MediaDraft = {
   type: "IMAGE" | "VIDEO";
 };
 
+type AvatarEditorState = {
+  target: "user" | "group";
+  source: string;
+  zoom: number;
+  offsetX: number;
+  offsetY: number;
+};
+
 type SignalDescription = {
   type: RTCSdpType;
   sdp: string;
@@ -130,7 +145,7 @@ const REACTION_EMOJIS = ["😘", "❤️‍🔥"] as const;
 type ReactionEmoji = typeof REACTION_EMOJIS[number];
 
 const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
-const ICE_SERVERS: RTCIceServer[] = [
+const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }
 ];
 
@@ -209,8 +224,40 @@ async function fileToDataUrl(file: File) {
   });
 }
 
+async function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Не удалось открыть изображение."));
+    image.src = src;
+  });
+}
+
+async function cropAvatarToSquare(editor: AvatarEditorState) {
+  const image = await loadImage(editor.source);
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Браузер не смог обработать изображение.");
+
+  const scale = Math.max(size / image.width, size / image.height) * editor.zoom;
+  const width = image.width * scale;
+  const height = image.height * scale;
+  const x = (size - width) / 2 + editor.offsetX;
+  const y = (size - height) / 2 + editor.offsetY;
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, size, size);
+  ctx.drawImage(image, x, y, width, height);
+  return canvas.toDataURL("image/jpeg", 0.9);
+}
+
 export default function ChatClient({ currentUser }: { currentUser: User }) {
   const router = useRouter();
+  const [profileUser, setProfileUser] = useState<User>(currentUser);
+  const isAdmin = profileUser.isAdmin || profileUser.username === "admin";
   const [chats, setChats] = useState<Chat[]>([]);
   const [activeChatId, setActiveChatId] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -227,7 +274,13 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [groupCreatorOpen, setGroupCreatorOpen] = useState(false);
   const [groupTitle, setGroupTitle] = useState("");
   const [groupMembers, setGroupMembers] = useState("");
+  const [groupMemberSearch, setGroupMemberSearch] = useState("");
+  const [groupPickResults, setGroupPickResults] = useState<User[]>([]);
+  const [groupSelectedUsers, setGroupSelectedUsers] = useState<User[]>([]);
   const [groupBusy, setGroupBusy] = useState(false);
+  const [groupInfoOpen, setGroupInfoOpen] = useState(false);
+  const [inviteSearch, setInviteSearch] = useState("");
+  const [inviteResults, setInviteResults] = useState<User[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [messageMenu, setMessageMenu] = useState<Message | null>(null);
   const [quickReaction, setQuickReaction] = useState<ReactionEmoji>("😘");
@@ -250,8 +303,23 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [speakerOn, setSpeakerOn] = useState(false);
   const [audioRouteStatus, setAudioRouteStatus] = useState("Обычный звук");
   const [mediaPermissionStatus, setMediaPermissionStatus] = useState("Микрофон/камера ещё не проверены");
+  const [iceServers, setIceServers] = useState<RTCIceServer[]>(DEFAULT_ICE_SERVERS);
+  const [turnReady, setTurnReady] = useState(false);
+  const [maintenanceClosed, setMaintenanceClosed] = useState(Boolean(currentUser.maintenanceMode));
+  const [maintenanceBusy, setMaintenanceBusy] = useState(false);
+  const [adminAliases, setAdminAliases] = useState<{ username: string; createdAt?: string }[]>(currentUser.aliases ?? []);
+  const [aliasInput, setAliasInput] = useState("");
+  const [adminUserSearch, setAdminUserSearch] = useState("");
+  const [adminUserResults, setAdminUserResults] = useState<User[]>([]);
+  const [adminSelectedUser, setAdminSelectedUser] = useState<User | null>(null);
+  const [adminUsernameDraft, setAdminUsernameDraft] = useState("");
+  const [adminDisplayNameDraft, setAdminDisplayNameDraft] = useState("");
+  const [adminBusy, setAdminBusy] = useState(false);
+  const [avatarEditor, setAvatarEditor] = useState<AvatarEditorState | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const profileAvatarRef = useRef<HTMLInputElement | null>(null);
+  const groupAvatarRef = useRef<HTMLInputElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -293,6 +361,32 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   useEffect(() => {
     loadChats();
   }, []);
+
+  useEffect(() => {
+    void loadAppState();
+    void loadIceServers();
+    if (isAdmin) void loadAdminAliases();
+  }, [isAdmin]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void loadAppState({ silent: true });
+    }, 4500);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    searchUsers(groupMemberSearch, setGroupPickResults, false, groupSelectedUsers.map((item) => item.id));
+  }, [groupMemberSearch, groupSelectedUsers]);
+
+  useEffect(() => {
+    searchUsers(inviteSearch, setInviteResults, false, activeChat?.members.map((item) => item.id) ?? []);
+  }, [inviteSearch, activeChat?.id, activeChat?.members]);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    searchUsers(adminUserSearch, setAdminUserResults, true, []);
+  }, [adminUserSearch, isAdmin]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -419,6 +513,191 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     };
   }, []);
 
+  async function searchUsers(queryValue: string, setter: (users: User[]) => void, includeSelf = false, excludeIds: string[] = []) {
+    const query = queryValue.trim();
+    if (query.length < 2) {
+      setter([]);
+      return;
+    }
+    const response = await fetch(`/api/users/search?q=${encodeURIComponent(query)}${includeSelf ? "&includeSelf=1" : ""}`, { credentials: "include" }).catch(() => null);
+    const data = response ? await response.json().catch(() => null) : null;
+    if (!response?.ok) {
+      setter([]);
+      return;
+    }
+    const excluded = new Set(excludeIds);
+    setter((data?.users ?? []).filter((user: User) => !excluded.has(user.id)));
+  }
+
+  async function loadAppState(options?: { silent?: boolean }) {
+    const response = await fetch("/api/me", { credentials: "include" }).catch(() => null);
+    const data = response ? await response.json().catch(() => null) : null;
+    if (!response?.ok || !data) return;
+    if (data.user) setProfileUser((current) => ({ ...current, ...data.user, isAdmin: data.isAdmin, maintenanceMode: data.maintenanceMode }));
+    setMaintenanceClosed(Boolean(data.maintenanceMode));
+    if (!options?.silent && data.isAdmin) void loadAdminAliases();
+  }
+
+  async function loadIceServers() {
+    const response = await fetch("/api/calls/ice", { credentials: "include" }).catch(() => null);
+    const data = response ? await response.json().catch(() => null) : null;
+    if (response?.ok && Array.isArray(data?.iceServers)) {
+      setIceServers(data.iceServers);
+      setTurnReady(Boolean(data.hasTurn));
+      setMediaPermissionStatus(data.hasTurn ? "Звонки готовы: STUN + TURN подключены" : "STUN включён. Для разных сетей лучше добавить TURN_URLS в Vercel");
+    }
+  }
+
+  async function loadAdminAliases() {
+    if (!isAdmin) return;
+    const response = await fetch("/api/admin/aliases", { credentials: "include" }).catch(() => null);
+    const data = response ? await response.json().catch(() => null) : null;
+    if (response?.ok) setAdminAliases(data?.aliases ?? []);
+  }
+
+  async function toggleMaintenanceMode() {
+    if (!isAdmin || maintenanceBusy) return;
+    setMaintenanceBusy(true);
+    const next = !maintenanceClosed;
+    const response = await fetch("/api/admin/maintenance", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: next })
+    });
+    const data = await response.json().catch(() => null);
+    setMaintenanceBusy(false);
+    if (!response.ok) {
+      alert(data?.error ?? "Не удалось переключить тех обслуживание.");
+      return;
+    }
+    setMaintenanceClosed(Boolean(data.enabled));
+  }
+
+  async function addAdminAlias(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!aliasInput.trim() || !isAdmin) return;
+    const response = await fetch("/api/admin/aliases", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: aliasInput.trim() })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      alert(data?.error ?? "Не удалось добавить юзернейм.");
+      return;
+    }
+    setAliasInput("");
+    setAdminAliases(data?.aliases ?? []);
+  }
+
+  async function removeAdminAlias(username: string) {
+    const response = await fetch("/api/admin/aliases", {
+      method: "DELETE",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username })
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok) setAdminAliases(data?.aliases ?? []);
+  }
+
+  function selectAdminUser(user: User) {
+    setAdminSelectedUser(user);
+    setAdminUsernameDraft(user.username);
+    setAdminDisplayNameDraft(user.displayName);
+  }
+
+  async function saveAdminUser() {
+    if (!adminSelectedUser || adminBusy) return;
+    setAdminBusy(true);
+    const response = await fetch(`/api/admin/users/${encodeURIComponent(adminSelectedUser.id)}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: adminUsernameDraft, displayName: adminDisplayNameDraft })
+    });
+    const data = await response.json().catch(() => null);
+    setAdminBusy(false);
+    if (!response.ok) {
+      alert(data?.error ?? "Не удалось сохранить профиль.");
+      return;
+    }
+    setAdminSelectedUser(data.user);
+    setAdminUserResults((current) => current.map((user) => user.id === data.user.id ? data.user : user));
+    void loadChats({ silent: true });
+  }
+
+  async function openAvatarEditor(file: File, target: "user" | "group") {
+    if (!file.type.startsWith("image/")) {
+      alert("Выбери изображение.");
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      alert("Аватарка слишком большая. Максимум 3.5 МБ.");
+      return;
+    }
+    const source = await fileToDataUrl(file);
+    setAvatarEditor({ target, source, zoom: 1, offsetX: 0, offsetY: 0 });
+  }
+
+  async function saveAvatarEditor() {
+    if (!avatarEditor) return;
+    try {
+      const avatarData = await cropAvatarToSquare(avatarEditor);
+      if (avatarEditor.target === "user") {
+        const response = await fetch("/api/me", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ avatarData })
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(data?.error ?? "Не удалось сохранить аватарку.");
+        setProfileUser((current) => ({ ...current, ...data.user }));
+        void loadChats({ silent: true });
+      } else if (activeChat?.type === "GROUP") {
+        const response = await fetch(`/api/chats/${encodeURIComponent(activeChat.id)}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ avatarData })
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(data?.error ?? "Не удалось сохранить аватарку группы.");
+        updateChatInList(data.chat as Chat);
+      }
+      setAvatarEditor(null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Не удалось обработать фото.");
+    }
+  }
+
+  function addSelectedGroupUser(user: User) {
+    setGroupSelectedUsers((current) => current.some((item) => item.id === user.id) ? current : [...current, user]);
+    setGroupMemberSearch("");
+    setGroupPickResults([]);
+  }
+
+  async function inviteUserToActiveGroup(user: User) {
+    if (!activeChat || activeChat.type !== "GROUP") return;
+    const response = await fetch(`/api/chats/${encodeURIComponent(activeChat.id)}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userIds: [user.id] })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      alert(data?.error ?? "Не удалось добавить участника.");
+      return;
+    }
+    updateChatInList(data.chat as Chat);
+    setInviteSearch("");
+    setInviteResults([]);
+  }
+
   async function loadChats(options?: { silent?: boolean }) {
     if (!options?.silent) setLoadingChats(true);
     const response = await fetch("/api/chats", { credentials: "include" });
@@ -510,6 +789,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     event.preventDefault();
     const title = groupTitle.trim();
     const usernames = parseUsernames(groupMembers);
+    const userIds = groupSelectedUsers.map((member) => member.id);
     if (!title || groupBusy) return;
     setGroupBusy(true);
     setSearchError("");
@@ -517,7 +797,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type: "GROUP", title, usernames })
+      body: JSON.stringify({ type: "GROUP", title, usernames, userIds })
     });
     const data = await response.json().catch(() => null);
     setGroupBusy(false);
@@ -528,6 +808,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     const chat = data.chat as Chat;
     setGroupTitle("");
     setGroupMembers("");
+    setGroupMemberSearch("");
+    setGroupSelectedUsers([]);
     setGroupCreatorOpen(false);
     setChats((current) => [chat, ...current.filter((item) => item.id !== chat.id)]);
     setActiveChatId(chat.id);
@@ -1078,7 +1360,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   }
 
   function createPeer(role: "caller" | "receiver") {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({ iceServers, iceCandidatePoolSize: 10 });
     const remote = new MediaStream();
     remoteStreamRef.current = remote;
     setRemoteStream(remote);
@@ -1151,6 +1433,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     cleanupCallMedia();
 
     try {
+      void loadIceServers();
       setCallNotice(kind === "VIDEO" ? "Создаю видеозвонок..." : "Создаю аудиозвонок...");
       const stream = await ensureLocalMedia(kind);
       void localVideoRef.current?.play().catch(() => undefined);
@@ -1177,7 +1460,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       activeCallRef.current = data.call;
       setActiveCall(data.call);
       await flushPendingIce("caller");
-      setCallNotice("Звоним… собеседник увидит входящий звонок. Если сеть сложная, может понадобиться TURN, но базовый сигналинг исправлен.");
+      setCallNotice(turnReady ? "Звоним… TURN включён, соединение должно проходить через разные сети стабильнее." : "Звоним… STUN включён. Для самых сложных сетей добавь TURN_URLS/TURN_USERNAME/TURN_CREDENTIAL в Vercel.");
     } catch (error) {
       cleanupCallMedia();
       const message = error instanceof Error ? error.message : "Проверь разрешение микрофона/камеры.";
@@ -1387,6 +1670,18 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const showSidebar = mobileListOpen;
   const showChat = !mobileListOpen || typeof window === "undefined";
 
+  if (maintenanceClosed && !isAdmin) {
+    return (
+      <main className="grid min-h-dvh place-items-center bg-[#e6edf5] px-5 text-center">
+        <div className="tg-card max-w-sm rounded-[2rem] p-7 shadow-2xl shadow-slate-900/10">
+          <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-full bg-[#229ed9]/10 text-3xl">🛠️</div>
+          <h1 className="tg-title text-2xl font-black tracking-[-0.03em]">Закрыто на тех обслуживание</h1>
+          <p className="tg-muted mt-3 text-sm leading-6">Админ обновляет Pirogram. Когда обновление закончится, приложение снова откроется.</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="tg-main h-dvh w-full overflow-hidden bg-[#dfe8f2] text-[#111827]">
       <audio ref={remoteAudioRef} autoPlay playsInline className="hidden" aria-hidden="true" />
@@ -1417,10 +1712,31 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                 </label>
 
                 {groupCreatorOpen ? (
-                  <form onSubmit={createGroupChat} className="tg-popover mt-2 space-y-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/5">
+                  <form onSubmit={createGroupChat} className="tg-popover mt-2 space-y-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/5">
                     <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Users size={17} className="text-[#229ed9]" /> Новый общий чат</div>
                     <input value={groupTitle} onChange={(event) => setGroupTitle(event.target.value)} placeholder="Название чата" className="tg-input-darkfix w-full rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" maxLength={64} />
-                    <input value={groupMembers} onChange={(event) => setGroupMembers(event.target.value)} placeholder="@username через пробел или запятую" className="tg-input-darkfix w-full rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" autoCapitalize="none" />
+                    <div className="rounded-2xl bg-[#f4f7fb] p-2">
+                      <div className="mb-2 flex flex-wrap gap-1.5">
+                        {groupSelectedUsers.map((member) => (
+                          <button key={member.id} type="button" onClick={() => setGroupSelectedUsers((current) => current.filter((item) => item.id !== member.id))} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+                            {member.displayName} <span className="text-slate-400">×</span>
+                          </button>
+                        ))}
+                      </div>
+                      <input value={groupMemberSearch} onChange={(event) => setGroupMemberSearch(event.target.value)} placeholder="Найти по нику или @username" className="tg-input-darkfix w-full rounded-xl bg-white px-3 py-2 text-sm outline-none" autoCapitalize="none" />
+                      {groupPickResults.length ? (
+                        <div className="mt-2 overflow-hidden rounded-xl bg-white shadow-sm">
+                          {groupPickResults.map((user) => (
+                            <button key={user.id} type="button" onClick={() => addSelectedGroupUser(user)} className="flex w-full items-center gap-2 border-b border-slate-100 px-2 py-2 text-left last:border-b-0 active:bg-[#eef7fd]">
+                              {user.avatarData ? <img src={user.avatarData} alt="" className="h-8 w-8 rounded-full object-cover" /> : <div className="grid h-8 w-8 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white">{avatarLabel(user.displayName)}</div>}
+                              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{user.displayName}</span><span className="block truncate text-xs text-[#229ed9]">@{user.username}</span></span>
+                              <Plus size={16} className="text-[#229ed9]" />
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    <input value={groupMembers} onChange={(event) => setGroupMembers(event.target.value)} placeholder="Или @username через пробел" className="tg-input-darkfix w-full rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" autoCapitalize="none" />
                     <div className="flex gap-2">
                       <button type="button" onClick={() => setGroupCreatorOpen(false)} className="flex-1 rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600 active:scale-[0.98]">Отмена</button>
                       <button disabled={groupBusy || !groupTitle.trim()} className="flex-1 rounded-xl bg-[#229ed9] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 active:scale-[0.98]">{groupBusy ? "Создаю..." : "Создать"}</button>
@@ -1518,14 +1834,81 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
             <div className="tg-settings no-scrollbar flex-1 overflow-y-auto p-4">
               <div className="tg-card mb-4 rounded-3xl p-4 shadow-sm">
                 <div className="flex items-center gap-4">
-                  {currentUser.avatarData ? <img src={currentUser.avatarData} alt="" className="h-16 w-16 rounded-full object-cover" /> : <div className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-2xl font-bold text-white">{avatarLabel(currentUser.displayName)}</div>}
+                  <button type="button" onClick={() => profileAvatarRef.current?.click()} className="group relative shrink-0">
+                    {profileUser.avatarData ? <img src={profileUser.avatarData} alt="" className="h-16 w-16 rounded-full object-cover" /> : <div className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-2xl font-bold text-white">{avatarLabel(profileUser.displayName)}</div>}
+                    <span className="absolute inset-0 grid place-items-center rounded-full bg-black/35 text-white opacity-0 transition group-hover:opacity-100"><Camera size={20} /></span>
+                  </button>
+                  <input ref={profileAvatarRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void openAvatarEditor(file, "user"); }} />
                   <div className="min-w-0">
-                    <p className="truncate text-xl font-bold text-slate-950">{currentUser.displayName}</p>
-                    <p className="truncate text-sm text-[#229ed9]">@{currentUser.username}</p>
-                    {currentUser.login ? <p className="tg-muted truncate text-xs">Логин: {currentUser.login}</p> : null}
+                    <p className="truncate text-xl font-bold text-slate-950">{profileUser.displayName}</p>
+                    <p className="truncate text-sm text-[#229ed9]">@{profileUser.username}</p>
+                    {profileUser.login ? <p className="tg-muted truncate text-xs">Логин: {profileUser.login}</p> : null}
+                    <p className="tg-muted mt-1 text-xs">Нажми на аватарку, чтобы обрезать фото в круг.</p>
                   </div>
                 </div>
               </div>
+
+              {isAdmin ? (
+                <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
+                  <div className="border-b border-slate-100 px-4 py-3">
+                    <p className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Wrench size={17} className="text-[#229ed9]" /> Админ-панель</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">Только @admin видит этот блок. Здесь можно закрыть приложение для всех, кроме тебя.</p>
+                  </div>
+                  <button onClick={() => void toggleMaintenanceMode()} disabled={maintenanceBusy} className={`flex w-full items-center justify-between px-4 py-3 text-left font-semibold active:bg-slate-50 disabled:opacity-60 ${maintenanceClosed ? "text-emerald-600" : "text-red-500"}`}>
+                    <span className="inline-flex items-center gap-3"><Wrench size={18} />{maintenanceClosed ? "Завершить обновление" : "Закрыть на тех обслуживание"}</span>
+                    <span className="text-xs">{maintenanceBusy ? "..." : maintenanceClosed ? "Закрыто" : "Открыто"}</span>
+                  </button>
+
+                  <div className="border-t border-slate-100 px-4 py-3">
+                    <p className="mb-2 text-sm font-semibold text-slate-950">Свободные юзернеймы админа</p>
+                    <form onSubmit={addAdminAlias} className="flex gap-2">
+                      <input value={aliasInput} onChange={(event) => setAliasInput(event.target.value)} placeholder="например pirogram" className="tg-input-darkfix min-w-0 flex-1 rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" autoCapitalize="none" />
+                      <button className="rounded-xl bg-[#229ed9] px-3 py-2 text-sm font-bold text-white">Добавить</button>
+                    </form>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {adminAliases.length ? adminAliases.map((alias) => (
+                        <button key={alias.username} type="button" onClick={() => void removeAdminAlias(alias.username)} className="rounded-full bg-[#229ed9]/10 px-2.5 py-1 text-xs font-semibold text-[#229ed9]">
+                          @{alias.username} <span className="text-slate-400">×</span>
+                        </button>
+                      )) : <span className="text-xs text-slate-400">Дополнительных юзернеймов пока нет</span>}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-slate-100 px-4 py-3">
+                    <p className="mb-2 text-sm font-semibold text-slate-950">Профили пользователей</p>
+                    <label className="flex h-10 items-center gap-2 rounded-xl bg-[#eef2f7] px-3 text-sm text-slate-500">
+                      <Search size={16} />
+                      <input value={adminUserSearch} onChange={(event) => setAdminUserSearch(event.target.value)} placeholder="Найти по нику или @username" className="tg-input-darkfix min-w-0 flex-1 bg-transparent outline-none" autoCapitalize="none" />
+                    </label>
+                    {adminUserResults.length ? (
+                      <div className="mt-2 overflow-hidden rounded-2xl bg-[#f8fbff]">
+                        {adminUserResults.map((user) => (
+                          <button key={user.id} type="button" onClick={() => selectAdminUser(user)} className="flex w-full items-center gap-2 border-b border-slate-100 px-2 py-2 text-left last:border-b-0 active:bg-[#eef7fd]">
+                            {user.avatarData ? <img src={user.avatarData} alt="" className="h-9 w-9 rounded-full object-cover" /> : <div className="grid h-9 w-9 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white">{avatarLabel(user.displayName)}</div>}
+                            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{user.displayName}</span><span className="block truncate text-xs text-[#229ed9]">@{user.username}</span></span>
+                            <UserRound size={16} className="text-slate-400" />
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {adminSelectedUser ? (
+                      <div className="mt-3 rounded-2xl bg-[#f4f7fb] p-3">
+                        <div className="mb-3 flex items-center gap-2">
+                          {adminSelectedUser.avatarData ? <img src={adminSelectedUser.avatarData} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="grid h-10 w-10 place-items-center rounded-full bg-[#229ed9] text-sm font-bold text-white">{avatarLabel(adminSelectedUser.displayName)}</div>}
+                          <div className="min-w-0"><p className="truncate text-sm font-bold">{adminSelectedUser.displayName}</p><p className="truncate text-xs text-[#229ed9]">@{adminSelectedUser.username}</p></div>
+                        </div>
+                        <input value={adminDisplayNameDraft} onChange={(event) => setAdminDisplayNameDraft(event.target.value)} placeholder="Ник" className="tg-input-darkfix mb-2 w-full rounded-xl bg-white px-3 py-2 text-sm outline-none" />
+                        <div className="mb-2 flex items-center gap-2 rounded-xl bg-white px-3 py-2">
+                          <AtSign size={15} className="text-slate-400" />
+                          <input value={adminUsernameDraft} onChange={(event) => setAdminUsernameDraft(event.target.value)} placeholder="username" className="tg-input-darkfix min-w-0 flex-1 bg-transparent text-sm outline-none" autoCapitalize="none" />
+                        </div>
+                        <button onClick={() => void saveAdminUser()} disabled={adminBusy} className="w-full rounded-xl bg-[#229ed9] px-3 py-2 text-sm font-bold text-white disabled:opacity-60">{adminBusy ? "Сохраняю..." : "Сохранить профиль"}</button>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
                 <div className="border-b border-slate-100 px-4 py-3">
@@ -1619,28 +2002,17 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
             <button onClick={() => setMobileListOpen(true)} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100 lg:hidden">
               <ArrowLeft size={21} />
             </button>
-            {activeChat?.avatarData ? <img src={activeChat.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-sm font-bold text-white">{avatarLabel(activeChat?.title)}</div>}
-            <div className="min-w-0 flex-1">
-              <h2 className="tg-title truncate text-[16px] font-semibold">{activeChat?.title || "Выберите чат"}</h2>
-              <p className="tg-accent truncate text-[13px]">{chatSubtitle(activeChat, currentUser)}</p>
-            </div>
+            <button type="button" onClick={() => activeChat?.type === "GROUP" ? setGroupInfoOpen(true) : undefined} className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl text-left active:bg-slate-50">
+              {activeChat?.avatarData ? <img src={activeChat.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-sm font-bold text-white">{avatarLabel(activeChat?.title)}</div>}
+              <span className="min-w-0 flex-1">
+                <span className="tg-title block truncate text-[16px] font-semibold">{activeChat?.title || "Выберите чат"}</span>
+                <span className="tg-accent block truncate text-[13px]">{chatSubtitle(activeChat, currentUser)}</span>
+              </span>
+            </button>
             <div className="flex gap-1">
               <button onClick={() => void startCall("AUDIO")} disabled={!activeChatId} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100 disabled:opacity-40" title="Аудиозвонок">
                 <Phone size={20} />
               </button>
-              {activeChat?.type === "GROUP" ? (
-                <>
-                  <button onClick={() => void renameGroupChat()} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100" title="Изменить название">
-                    <Pencil size={19} />
-                  </button>
-                  <button onClick={() => void inviteToGroupChat()} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100" title="Пригласить">
-                    <UserPlus size={20} />
-                  </button>
-                  <button onClick={() => void leaveGroupChat()} className="grid h-10 w-10 place-items-center rounded-full text-red-500 active:bg-red-50" title="Выйти из чата">
-                    <LogOut size={19} />
-                  </button>
-                </>
-              ) : null}
               <button onClick={() => void startCall("VIDEO")} disabled={!activeChatId} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100 disabled:opacity-40" title="Видеозвонок">
                 <Video size={20} />
               </button>
@@ -1681,7 +2053,10 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                         <span className="tg-day-chip tg-fade-chip rounded-full px-3 py-1 text-[12px] font-medium backdrop-blur">{dayLabel(message.createdAt)}</span>
                       </div>
                     ) : null}
-                    <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                    <div className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
+                      {!mine ? (
+                        message.sender?.avatarData ? <img src={message.sender.avatarData} alt="" className={`h-8 w-8 shrink-0 rounded-full object-cover ${previousSameSender ? "opacity-0" : ""}`} /> : <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white ${previousSameSender ? "opacity-0" : ""}`}>{avatarLabel(message.sender?.displayName || message.sender?.username)}</div>
+                      ) : null}
                       <div className="tg-message-shell relative max-w-[78%] sm:max-w-[62%]">
                         <div className={`tg-swipe-reply-icon ${swipe?.ready ? "is-ready" : ""}`} aria-hidden="true">
                           <Reply size={17} />
@@ -1777,6 +2152,97 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
         </section>
       </div>
 
+      {groupInfoOpen && activeChat?.type === "GROUP" ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/35 p-0 backdrop-blur-md sm:items-center sm:p-5" onClick={() => setGroupInfoOpen(false)}>
+          <div className="tg-group-info w-full max-w-md rounded-t-[2rem] bg-white p-4 shadow-2xl sm:rounded-[2rem]" onClick={(event) => event.stopPropagation()}>
+            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200 sm:hidden" />
+            <div className="flex items-center justify-between">
+              <button onClick={() => setGroupInfoOpen(false)} className="rounded-full px-2 py-1 text-sm font-semibold text-[#229ed9]">Закрыть</button>
+              <p className="tg-title text-sm font-bold">Информация</p>
+              <span className="w-14" />
+            </div>
+
+            <div className="mt-3 text-center">
+              <button type="button" onClick={() => groupAvatarRef.current?.click()} className="group relative mx-auto grid h-24 w-24 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-3xl font-black text-white shadow-xl shadow-[#229ed9]/20">
+                {activeChat.avatarData ? <img src={activeChat.avatarData} alt="" className="h-full w-full object-cover" /> : avatarLabel(activeChat.title)}
+                <span className="absolute inset-0 grid place-items-center bg-black/35 opacity-0 transition group-hover:opacity-100"><Camera size={24} /></span>
+              </button>
+              <input ref={groupAvatarRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void openAvatarEditor(file, "group"); }} />
+              <p className="mt-3 text-xl font-black tracking-[-0.03em] text-slate-950">{activeChat.title}</p>
+              <p className="text-sm text-slate-500">{activeChat.memberCount ?? activeChat.members.length} участников</p>
+            </div>
+
+            <div className="mt-5 grid grid-cols-4 gap-2 text-center text-[11px] font-semibold text-slate-600">
+              <button onClick={() => void startCall("AUDIO")} className="rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><Phone className="mx-auto mb-1" size={20} />Аудио</button>
+              <button onClick={() => void startCall("VIDEO")} className="rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><Video className="mx-auto mb-1" size={20} />Видео</button>
+              <button onClick={() => void renameGroupChat()} className="rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><Pencil className="mx-auto mb-1" size={20} />Название</button>
+              <button onClick={() => profileAvatarRef.current && setInviteSearch("")} className="rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><UserPlus className="mx-auto mb-1" size={20} />Добавить</button>
+            </div>
+
+            <div className="mt-4 rounded-2xl bg-[#f4f7fb] p-3">
+              <label className="flex h-10 items-center gap-2 rounded-xl bg-white px-3 text-sm text-slate-500">
+                <Search size={16} />
+                <input value={inviteSearch} onChange={(event) => setInviteSearch(event.target.value)} placeholder="Добавить по нику или @username" className="tg-input-darkfix min-w-0 flex-1 bg-transparent outline-none" autoCapitalize="none" />
+              </label>
+              {inviteResults.length ? (
+                <div className="mt-2 overflow-hidden rounded-xl bg-white">
+                  {inviteResults.map((user) => (
+                    <button key={user.id} type="button" onClick={() => void inviteUserToActiveGroup(user)} className="flex w-full items-center gap-2 border-b border-slate-100 px-2 py-2 text-left last:border-b-0 active:bg-[#eef7fd]">
+                      {user.avatarData ? <img src={user.avatarData} alt="" className="h-9 w-9 rounded-full object-cover" /> : <div className="grid h-9 w-9 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white">{avatarLabel(user.displayName)}</div>}
+                      <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{user.displayName}</span><span className="block truncate text-xs text-[#229ed9]">@{user.username}</span></span>
+                      <Plus size={16} className="text-[#229ed9]" />
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mt-4 max-h-56 overflow-y-auto rounded-2xl bg-[#f8fbff]">
+              {activeChat.members.map((member) => (
+                <div key={member.id} className="flex items-center gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0">
+                  {member.avatarData ? <img src={member.avatarData} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="grid h-10 w-10 place-items-center rounded-full bg-[#229ed9] text-sm font-bold text-white">{avatarLabel(member.displayName)}</div>}
+                  <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-slate-950">{member.displayName}</span><span className="block truncate text-xs text-[#229ed9]">@{member.username}</span></span>
+                </div>
+              ))}
+            </div>
+
+            <button onClick={() => void leaveGroupChat()} className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-500 active:scale-[0.98]"><LogOut size={18} />Выйти из группы</button>
+          </div>
+        </div>
+      ) : null}
+
+      {avatarEditor ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/45 p-5 backdrop-blur-md" onClick={() => setAvatarEditor(null)}>
+          <div className="tg-modal w-full max-w-sm rounded-[2rem] p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <button onClick={() => setAvatarEditor(null)} className="text-sm font-semibold text-slate-500">Отмена</button>
+              <p className="tg-title text-sm font-bold">Обрезать фото</p>
+              <button onClick={() => void saveAvatarEditor()} className="text-sm font-bold text-[#229ed9]">Готово</button>
+            </div>
+            <div className="mx-auto grid h-64 w-64 place-items-center overflow-hidden rounded-full bg-slate-100 shadow-inner">
+              <img
+                src={avatarEditor.source}
+                alt="avatar preview"
+                className="max-h-none max-w-none select-none"
+                draggable={false}
+                style={{ transform: `translate(${avatarEditor.offsetX}px, ${avatarEditor.offsetY}px) scale(${avatarEditor.zoom})`, width: "100%", height: "100%", objectFit: "cover" }}
+              />
+            </div>
+            <div className="mt-4 space-y-3">
+              <label className="block text-xs font-semibold text-slate-500">Масштаб
+                <input type="range" min="1" max="2.4" step="0.02" value={avatarEditor.zoom} onChange={(event) => setAvatarEditor((current) => current ? { ...current, zoom: Number(event.target.value) } : current)} className="mt-2 w-full" />
+              </label>
+              <label className="block text-xs font-semibold text-slate-500">Сдвиг по горизонтали
+                <input type="range" min="-130" max="130" step="1" value={avatarEditor.offsetX} onChange={(event) => setAvatarEditor((current) => current ? { ...current, offsetX: Number(event.target.value) } : current)} className="mt-2 w-full" />
+              </label>
+              <label className="block text-xs font-semibold text-slate-500">Сдвиг по вертикали
+                <input type="range" min="-130" max="130" step="1" value={avatarEditor.offsetY} onChange={(event) => setAvatarEditor((current) => current ? { ...current, offsetY: Number(event.target.value) } : current)} className="mt-2 w-full" />
+              </label>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {messageMenu ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-5 backdrop-blur-md" onClick={() => setMessageMenu(null)}>
           <div className="tg-message-menu w-full max-w-[330px]" onClick={(event) => event.stopPropagation()}>
@@ -1866,7 +2332,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                   localStream ? <video ref={localVideoRef} autoPlay playsInline muted className="h-[220px] w-full rounded-[1.2rem] bg-black object-cover" /> : <div className="grid h-[220px] place-items-center rounded-[1.2rem] bg-slate-200 text-slate-500">Камера не включена</div>
                 ) : (
                   <div className="grid h-[180px] place-items-center rounded-[1.2rem] bg-slate-200">
-                    <div className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] to-[#229ed9] text-2xl font-bold text-white">{avatarLabel(currentUser.displayName)}</div>
+                    <div className="grid h-20 w-20 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] to-[#229ed9] text-2xl font-bold text-white">{avatarLabel(profileUser.displayName)}</div>
                   </div>
                 )}
               </div>

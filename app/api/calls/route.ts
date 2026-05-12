@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
+import { isMaintenanceBlocked } from "@/lib/admin";
 import { db } from "@/lib/db";
 import { jsonError } from "@/lib/http";
 import { notifyChatMembers } from "@/lib/push";
@@ -36,7 +37,7 @@ const selectCall = {
   createdAt: true,
   updatedAt: true,
   endedAt: true,
-  caller: { select: { id: true, username: true, displayName: true, avatarData: true } }
+  caller: { select: { id: true, username: true, displayName: true, avatarData: true, aliases: { select: { username: true }, orderBy: { createdAt: "asc" } } } }
 } as const;
 
 async function ensureMembership(userId: string, chatId: string) {
@@ -64,6 +65,7 @@ function mergeIce(current: unknown, incoming: unknown): Prisma.InputJsonValue[] 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) return jsonError("Не авторизован.", 401);
+  if (await isMaintenanceBlocked(user)) return jsonError("Закрыто на тех обслуживание.", 503);
 
   const { searchParams } = new URL(request.url);
   const chatId = searchParams.get("chatId");
@@ -104,6 +106,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return jsonError("Не авторизован.", 401);
+  if (await isMaintenanceBlocked(user)) return jsonError("Закрыто на тех обслуживание.", 503);
 
   const body = await request.json().catch(() => null);
   const parsed = startSchema.safeParse(body);
@@ -150,6 +153,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const user = await getCurrentUser();
   if (!user) return jsonError("Не авторизован.", 401);
+  if (await isMaintenanceBlocked(user)) return jsonError("Закрыто на тех обслуживание.", 503);
 
   const body = await request.json().catch(() => null);
   const parsed = patchSchema.safeParse(body);

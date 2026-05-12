@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
+import { isMaintenanceBlocked } from "@/lib/admin";
 import { db } from "@/lib/db";
 import { jsonError } from "@/lib/http";
 import { detectMessageType, validateMediaData } from "@/lib/media";
@@ -19,7 +20,7 @@ const postSchema = z.object({
 });
 
 function publicUserSelect() {
-  return { id: true, username: true, displayName: true, avatarData: true } as const;
+  return { id: true, username: true, displayName: true, avatarData: true, aliases: { select: { username: true }, orderBy: { createdAt: "asc" } } } as const;
 }
 
 const replySelect = {
@@ -71,6 +72,7 @@ function attachReadReceipts<T extends { id: string; senderId: string | null; cre
 export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) return jsonError("Не авторизован.", 401);
+  if (await isMaintenanceBlocked(user)) return jsonError("Закрыто на тех обслуживание.", 503);
 
   const { searchParams } = new URL(request.url);
   const chatId = searchParams.get("chatId");
@@ -121,6 +123,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (!user) return jsonError("Не авторизован.", 401);
+  if (await isMaintenanceBlocked(user)) return jsonError("Закрыто на тех обслуживание.", 503);
 
   const body = await request.json().catch(() => null);
   const parsed = postSchema.safeParse(body);

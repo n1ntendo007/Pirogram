@@ -106,7 +106,7 @@ npm run db:encrypt-existing
 
 ## Регион Vercel
 
-В `vercel.json` выставлен регион `arn1` — Stockholm, Sweden. Латвии как compute-region у Vercel нет, это ближайший доступный североевропейский вариант. Статика всё равно раздаётся через CDN Vercel из ближайших PoP к пользователю.
+Регион Vercel больше не зафиксирован в `vercel.json`: принудительный Stockholm `arn1` убран, чтобы не было лишней задержки. Vercel снова использует регион проекта/дефолтную настройку. Если в Dashboard вручную выставлен `arn1`, уберите его там тоже.
 
 ## v18 changes
 
@@ -130,3 +130,22 @@ npx prisma migrate deploy
 - Added reactions with only two allowed emojis: 😘 and ❤️‍🔥.
 - Added quick reaction setting for double tap.
 - Added Prisma migration `20260512073000_message_reactions` for message reactions.
+
+## v20 admin, maintenance, group profiles, avatars, calls
+
+- `@admin` gets a private admin panel in Settings.
+- Admin can turn on maintenance mode. While it is on, everyone else sees `Закрыто на тех обслуживание`, and only `@admin` can keep using the app.
+- Admin can search users and change their public `@username` / display name.
+- Admin can add/remove extra free usernames for himself. These aliases are searchable and can be used to start chats.
+- Group creation and adding members now support searching by regular display name or `@username` and tapping a profile.
+- Group header opens a Telegram-like group info sheet with avatar, members, and actions: call, rename, add user, change avatar, leave.
+- Profile and group avatars can be changed with a circular crop preview.
+- Calls now load ICE config from `/api/calls/ice`. STUN works by default; for stable calls across different Wi-Fi/NAT/mobile networks add TURN variables in Vercel:
+
+```env
+TURN_URLS="turn:your-turn.example.com:3478,turns:your-turn.example.com:5349"
+TURN_USERNAME="your_turn_username"
+TURN_CREDENTIAL="your_turn_password"
+```
+
+Without TURN, WebRTC may still fail on strict routers or mobile networks even if the app code is correct.

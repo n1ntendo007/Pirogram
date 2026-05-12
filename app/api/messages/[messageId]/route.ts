@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUser } from "@/lib/auth";
+import { isMaintenanceBlocked } from "@/lib/admin";
 import { db } from "@/lib/db";
 import { jsonError } from "@/lib/http";
 
@@ -17,6 +18,7 @@ const deleteSchema = z.object({
 export async function DELETE(request: Request, context: RouteContext) {
   const user = await getCurrentUser();
   if (!user) return jsonError("Не авторизован.", 401);
+  if (await isMaintenanceBlocked(user)) return jsonError("Закрыто на тех обслуживание.", 503);
 
   const { messageId } = await context.params;
   const body = await request.json().catch(() => ({}));

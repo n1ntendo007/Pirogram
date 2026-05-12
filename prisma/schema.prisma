@@ -50,6 +50,7 @@ model User {
   callsStarted      CallSession[]      @relation("CallCaller")
   hiddenMessages    MessageDeletion[]
   reactions         MessageReaction[]
+  aliases           UsernameAlias[]
 
   @@index([login])
   @@index([username])
@@ -137,6 +138,24 @@ model MessageReaction {
   @@unique([messageId, userId])
   @@index([messageId])
   @@index([userId])
+}
+
+model UsernameAlias {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  userId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([username])
+}
+
+model GlobalSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
 }
 
 model PushSubscription {
