@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import PwaInstallGate from "./pwa-install-gate";
 
 export const metadata: Metadata = {
   title: "Pirogram",
@@ -27,7 +28,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ru">
-      <body>{children}</body>
+      <body><PwaInstallGate>{children}</PwaInstallGate></body>
     </html>
   );
 }

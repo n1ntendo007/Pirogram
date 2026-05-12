@@ -10,14 +10,18 @@ import {
   Moon,
   Mic,
   Paperclip,
+  Pencil,
   Phone,
   PhoneOff,
   Plus,
+  Reply,
   Search,
   Send,
   Smartphone,
   TestTube2,
   Trash2,
+  UserPlus,
+  Users,
   Sun,
   Volume2,
   VolumeX,
@@ -37,6 +41,18 @@ type User = {
   createdAt?: string;
 };
 
+type ReplyPreviewMessage = {
+  id: string;
+  chatId?: string;
+  senderId: string | null;
+  type: "TEXT" | "IMAGE" | "VIDEO" | "FILE" | "SYSTEM" | "CALL";
+  text: string | null;
+  mediaMime?: string | null;
+  mediaName: string | null;
+  createdAt: string;
+  sender?: User | null;
+};
+
 type Message = {
   id: string;
   chatId: string;
@@ -49,6 +65,7 @@ type Message = {
   createdAt: string;
   sender?: User | null;
   readByOthers?: boolean;
+  replyTo?: ReplyPreviewMessage | null;
 };
 
 type Chat = {
@@ -59,6 +76,7 @@ type Chat = {
   avatarData?: string | null;
   updatedAt: string;
   unreadCount?: number;
+  memberCount?: number;
   members: User[];
   messages: Omit<Message, "mediaData">[];
 };
@@ -141,6 +159,25 @@ function chatPreview(message?: Omit<Message, "mediaData">) {
   return message.text || "Сообщение";
 }
 
+function replyPreview(message?: ReplyPreviewMessage | Message | null) {
+  if (!message) return "Сообщение";
+  if (message.type === "IMAGE") return "Фото";
+  if (message.type === "VIDEO") return "Видео";
+  if (message.type === "CALL") return message.text || "Звонок";
+  return message.text || "Сообщение";
+}
+
+function chatSubtitle(chat: Chat | undefined, currentUser: User) {
+  if (!chat) return `@${currentUser.username}`;
+  if (chat.type === "PRIVATE") return chat.username ? `@${chat.username}` : "Личный чат";
+  if (chat.type === "GROUP") return `${chat.memberCount ?? chat.members.length} участников`;
+  return `@${currentUser.username}`;
+}
+
+function parseUsernames(value: string) {
+  return [...new Set(value.split(/[\s,;]+/).map((item) => item.trim().replace(/^@+/, "").toLowerCase()).filter(Boolean))];
+}
+
 async function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -165,6 +202,12 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [searchResults, setSearchResults] = useState<User[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
+  const [groupCreatorOpen, setGroupCreatorOpen] = useState(false);
+  const [groupTitle, setGroupTitle] = useState("");
+  const [groupMembers, setGroupMembers] = useState("");
+  const [groupBusy, setGroupBusy] = useState(false);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [messageMenu, setMessageMenu] = useState<Message | null>(null);
   const [sending, setSending] = useState(false);
   const [loadingChats, setLoadingChats] = useState(true);
   const [mobileListOpen, setMobileListOpen] = useState(true);
@@ -195,6 +238,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const signalStartedRef = useRef<string | null>(null);
   const addedIceKeysRef = useRef<Set<string>>(new Set());
   const pendingLocalIceRef = useRef<SignalIce[]>([]);
+  const messagePointerStartRef = useRef<{ x: number; y: number; id: string } | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
 
   const activeChat = useMemo(() => chats.find((chat) => chat.id === activeChatId), [chats, activeChatId]);
   const lastMessageDate = messages[messages.length - 1]?.createdAt;
@@ -217,6 +262,13 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
   useEffect(() => {
     loadChats();
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      void loadChats({ silent: true });
+    }, 2500);
+    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -260,6 +312,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   }, []);
 
   useEffect(() => {
+    setReplyTo(null);
+    setMessageMenu(null);
     if (!activeChatId) return;
     void loadMessages(activeChatId);
   }, [activeChatId]);
@@ -335,16 +389,23 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     };
   }, []);
 
-  async function loadChats() {
-    setLoadingChats(true);
-    const response = await fetch("/api/chats");
+  async function loadChats(options?: { silent?: boolean }) {
+    if (!options?.silent) setLoadingChats(true);
+    const response = await fetch("/api/chats", { credentials: "include" });
     const data = await response.json().catch(() => null);
-    const nextChats = data?.chats ?? [];
+    const nextChats = response.ok ? data?.chats ?? [] : [];
     setChats(nextChats);
-    setLoadingChats(false);
-    if (!activeChatId && nextChats[0]) {
-      setActiveChatId(nextChats[0].id);
-    }
+    if (!options?.silent) setLoadingChats(false);
+    setActiveChatId((current) => {
+      if (!current && nextChats[0]) return nextChats[0].id;
+      if (current && !nextChats.some((chat: Chat) => chat.id === current)) {
+        setMessages([]);
+        setActiveCall(null);
+        cleanupCallMedia();
+        return nextChats[0]?.id ?? "";
+      }
+      return current;
+    });
   }
 
   async function loadMessages(chatId: string) {
@@ -358,7 +419,10 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
   async function loadNewMessages(chatId: string) {
     const after = messages[messages.length - 1]?.createdAt;
-    if (!after) return;
+    if (!after) {
+      await loadMessages(chatId);
+      return;
+    }
     const response = await fetch(`/api/messages?chatId=${encodeURIComponent(chatId)}&after=${encodeURIComponent(after)}`);
     const data = await response.json().catch(() => null);
     if (response.ok && data?.messages?.length) {
@@ -406,6 +470,96 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     await startPrivateChat(searchQuery);
   }
 
+
+  async function createGroupChat(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const title = groupTitle.trim();
+    const usernames = parseUsernames(groupMembers);
+    if (!title || groupBusy) return;
+    setGroupBusy(true);
+    setSearchError("");
+    const response = await fetch("/api/chats", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "GROUP", title, usernames })
+    });
+    const data = await response.json().catch(() => null);
+    setGroupBusy(false);
+    if (!response.ok) {
+      setSearchError(data?.error ?? "Не удалось создать общий чат.");
+      return;
+    }
+    const chat = data.chat as Chat;
+    setGroupTitle("");
+    setGroupMembers("");
+    setGroupCreatorOpen(false);
+    setChats((current) => [chat, ...current.filter((item) => item.id !== chat.id)]);
+    setActiveChatId(chat.id);
+    setMobileListOpen(false);
+  }
+
+  function updateChatInList(chat: Chat) {
+    setChats((current) => [chat, ...current.filter((item) => item.id !== chat.id)]);
+  }
+
+  async function renameGroupChat() {
+    if (!activeChat || activeChat.type !== "GROUP") return;
+    const title = window.prompt("Новое название общего чата", activeChat.title || "");
+    if (!title?.trim()) return;
+    const response = await fetch(`/api/chats/${encodeURIComponent(activeChat.id)}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: title.trim() })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      alert(data?.error ?? "Не удалось изменить название.");
+      return;
+    }
+    updateChatInList(data.chat as Chat);
+  }
+
+  async function inviteToGroupChat() {
+    if (!activeChat || activeChat.type !== "GROUP") return;
+    const raw = window.prompt("Кого пригласить? Введи @username через пробел или запятую");
+    const usernames = parseUsernames(raw || "");
+    if (!usernames.length) return;
+    const response = await fetch(`/api/chats/${encodeURIComponent(activeChat.id)}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ usernames })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      alert(data?.error ?? "Не удалось пригласить пользователей.");
+      return;
+    }
+    updateChatInList(data.chat as Chat);
+  }
+
+  async function leaveGroupChat() {
+    if (!activeChat || activeChat.type !== "GROUP") return;
+    const confirmed = window.confirm(`Выйти из общего чата «${activeChat.title || "Чат"}»?`);
+    if (!confirmed) return;
+    const response = await fetch(`/api/chats/${encodeURIComponent(activeChat.id)}?mode=leave`, {
+      method: "DELETE",
+      credentials: "include"
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      alert(data?.error ?? "Не удалось выйти из чата.");
+      return;
+    }
+    const nextChats = chats.filter((chat) => chat.id !== activeChat.id);
+    setChats(nextChats);
+    setActiveChatId(nextChats[0]?.id ?? "");
+    setMessages([]);
+    setMobileListOpen(true);
+  }
+
   async function sendMessage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const cleanText = text.trim();
@@ -417,7 +571,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       text: cleanText,
       mediaData: mediaDraft?.data,
       mediaMime: mediaDraft?.mime,
-      mediaName: mediaDraft?.name
+      mediaName: mediaDraft?.name,
+      replyToId: replyTo?.id
     };
 
     setText("");
@@ -435,6 +590,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
     if (response.ok && data?.message) {
       setMessages((current) => [...current, data.message]);
+      setReplyTo(null);
       void loadChats();
     } else {
       setText(cleanText);
@@ -601,6 +757,55 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       setMobileListOpen(true);
     }
     if (!nextChats.some((chat) => chat.type !== "SAVED")) setEditingChats(false);
+  }
+
+  function clearMessageGesture() {
+    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  }
+
+  function startMessagePointer(event: React.PointerEvent, message: Message) {
+    messagePointerStartRef.current = { x: event.clientX, y: event.clientY, id: message.id };
+    clearMessageGesture();
+    longPressTimerRef.current = window.setTimeout(() => {
+      setMessageMenu(message);
+      if (navigator.vibrate) navigator.vibrate(35);
+    }, 620);
+  }
+
+  function endMessagePointer(event: React.PointerEvent, message: Message) {
+    const start = messagePointerStartRef.current;
+    clearMessageGesture();
+    messagePointerStartRef.current = null;
+    if (!start || start.id !== message.id) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (dx < -45 && Math.abs(dy) < 42) {
+      setReplyTo(message);
+      if (navigator.vibrate) navigator.vibrate(20);
+    }
+  }
+
+  async function deleteMessage(scope: "me" | "everyone") {
+    if (!messageMenu) return;
+    const message = messageMenu;
+    const confirmed = window.confirm(scope === "everyone" ? "Удалить это сообщение у всех?" : "Удалить это сообщение только у себя?");
+    if (!confirmed) return;
+    const response = await fetch(`/api/messages/${encodeURIComponent(message.id)}`, {
+      method: "DELETE",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scope })
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      alert(data?.error ?? "Не удалось удалить сообщение.");
+      return;
+    }
+    setMessages((current) => current.filter((item) => item.id !== message.id));
+    if (replyTo?.id === message.id) setReplyTo(null);
+    setMessageMenu(null);
+    void loadChats({ silent: true });
   }
 
   async function testMedia(kind: "AUDIO" | "VIDEO") {
@@ -1077,9 +1282,14 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                     {editingChats ? "Done" : "Edit"}
                   </button>
                   <h1 className="text-[18px] font-bold tracking-[-0.02em] text-slate-950">Chats</h1>
-                  <button type="button" onClick={() => { setActiveTab("settings"); setMobileListOpen(true); }} className="tg-icon-btn grid h-9 w-9 place-items-center rounded-full active:bg-slate-100" aria-label="Настройки">
-                    <Smartphone size={19} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => setGroupCreatorOpen((value) => !value)} className="tg-icon-btn grid h-9 w-9 place-items-center rounded-full active:bg-slate-100" aria-label="Создать общий чат">
+                      <Plus size={20} />
+                    </button>
+                    <button type="button" onClick={() => { setActiveTab("settings"); setMobileListOpen(true); }} className="tg-icon-btn grid h-9 w-9 place-items-center rounded-full active:bg-slate-100" aria-label="Настройки">
+                      <Smartphone size={19} />
+                    </button>
+                  </div>
                 </div>
 
                 <label className="tg-search flex h-10 items-center gap-2 rounded-xl bg-[#eef2f7] px-3 text-[15px] text-slate-500 shadow-inner shadow-slate-200/50 focus-within:ring-2 focus-within:ring-[#229ed9]/20">
@@ -1087,6 +1297,18 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                   <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search or @username" className="tg-input-darkfix min-w-0 flex-1 bg-transparent outline-none" autoCapitalize="none" />
                   {searchQuery ? <button type="button" onClick={() => { setSearchQuery(""); setSearchResults([]); }} className="grid h-5 w-5 place-items-center rounded-full bg-black/20 text-white"><X size={13} /></button> : null}
                 </label>
+
+                {groupCreatorOpen ? (
+                  <form onSubmit={createGroupChat} className="tg-popover mt-2 space-y-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/5">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Users size={17} className="text-[#229ed9]" /> Новый общий чат</div>
+                    <input value={groupTitle} onChange={(event) => setGroupTitle(event.target.value)} placeholder="Название чата" className="tg-input-darkfix w-full rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" maxLength={64} />
+                    <input value={groupMembers} onChange={(event) => setGroupMembers(event.target.value)} placeholder="@username через пробел или запятую" className="tg-input-darkfix w-full rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" autoCapitalize="none" />
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setGroupCreatorOpen(false)} className="flex-1 rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600 active:scale-[0.98]">Отмена</button>
+                      <button disabled={groupBusy || !groupTitle.trim()} className="flex-1 rounded-xl bg-[#229ed9] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 active:scale-[0.98]">{groupBusy ? "Создаю..." : "Создать"}</button>
+                    </div>
+                  </form>
+                ) : null}
 
                 {searchQuery.trim().length >= 2 ? (
                   <div className="tg-popover mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg shadow-slate-900/5">
@@ -1262,12 +1484,25 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
             {activeChat?.avatarData ? <img src={activeChat.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-sm font-bold text-white">{avatarLabel(activeChat?.title)}</div>}
             <div className="min-w-0 flex-1">
               <h2 className="tg-title truncate text-[16px] font-semibold">{activeChat?.title || "Выберите чат"}</h2>
-              <p className="tg-accent truncate text-[13px]">{activeChat?.username ? `@${activeChat.username}` : `@${currentUser.username}`}</p>
+              <p className="tg-accent truncate text-[13px]">{chatSubtitle(activeChat, currentUser)}</p>
             </div>
             <div className="flex gap-1">
               <button onClick={() => void startCall("AUDIO")} disabled={!activeChatId} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100 disabled:opacity-40" title="Аудиозвонок">
                 <Phone size={20} />
               </button>
+              {activeChat?.type === "GROUP" ? (
+                <>
+                  <button onClick={() => void renameGroupChat()} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100" title="Изменить название">
+                    <Pencil size={19} />
+                  </button>
+                  <button onClick={() => void inviteToGroupChat()} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100" title="Пригласить">
+                    <UserPlus size={20} />
+                  </button>
+                  <button onClick={() => void leaveGroupChat()} className="grid h-10 w-10 place-items-center rounded-full text-red-500 active:bg-red-50" title="Выйти из чата">
+                    <LogOut size={19} />
+                  </button>
+                </>
+              ) : null}
               <button onClick={() => void startCall("VIDEO")} disabled={!activeChatId} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100 disabled:opacity-40" title="Видеозвонок">
                 <Video size={20} />
               </button>
@@ -1307,8 +1542,21 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                       </div>
                     ) : null}
                     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                      <div className={`tg-bubble max-w-[78%] text-[14px] sm:max-w-[62%] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"} ${previousSameSender ? "tg-bubble-tight" : ""}`}>
+                      <div
+                        onPointerDown={(event) => startMessagePointer(event, message)}
+                        onPointerUp={(event) => endMessagePointer(event, message)}
+                        onPointerCancel={clearMessageGesture}
+                        onPointerLeave={clearMessageGesture}
+                        onContextMenu={(event) => { event.preventDefault(); setMessageMenu(message); }}
+                        className={`tg-bubble tg-bubble-animated max-w-[78%] touch-pan-y text-[14px] sm:max-w-[62%] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"} ${previousSameSender ? "tg-bubble-tight" : ""}`}
+                      >
                         {!mine && !previousSameSender ? <p className="tg-bubble-author mb-1 text-[11px] font-semibold">{message.sender?.displayName || message.sender?.username || "Pirogram"}</p> : null}
+                        {message.replyTo ? (
+                          <div className="tg-reply-quote mb-1.5 rounded-xl px-2.5 py-1.5 text-xs">
+                            <p className="truncate font-bold">{message.replyTo.sender?.displayName || message.replyTo.sender?.username || "Pirogram"}</p>
+                            <p className="truncate opacity-80">{replyPreview(message.replyTo)}</p>
+                          </div>
+                        ) : null}
                         {message.mediaData && message.type === "IMAGE" ? <img src={message.mediaData} alt={message.mediaName || "Фото"} className="tg-bubble-media mb-2 max-h-80 w-full object-cover" /> : null}
                         {message.mediaData && message.type === "VIDEO" ? <video src={message.mediaData} controls playsInline className="tg-bubble-media mb-2 max-h-80 w-full" /> : null}
                         {message.text ? <p className="whitespace-pre-wrap break-words leading-6">{message.text}</p> : null}
@@ -1323,6 +1571,19 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               })}
             </div>
           </div>
+
+          {replyTo ? (
+            <div className="tg-compose border-t border-slate-200 px-2 pt-2">
+              <div className="tg-preview-card mx-auto flex max-w-4xl items-center gap-2 rounded-2xl p-2">
+                <Reply size={18} className="shrink-0 text-[#229ed9]" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-slate-950">Ответ {replyTo.sender?.displayName ? `для ${replyTo.sender.displayName}` : "на сообщение"}</p>
+                  <p className="tg-muted truncate text-xs">{replyPreview(replyTo)}</p>
+                </div>
+                <button type="button" onClick={() => setReplyTo(null)} className="grid h-9 w-9 place-items-center rounded-full bg-black/10 text-slate-500"><X size={17} /></button>
+              </div>
+            </div>
+          ) : null}
 
           {mediaDraft ? (
             <div className="tg-compose border-t border-slate-200 px-2 pt-2">
@@ -1351,6 +1612,29 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
           </form>
         </section>
       </div>
+
+      {messageMenu ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-3 backdrop-blur-sm sm:items-center" onClick={() => setMessageMenu(null)}>
+          <div className="tg-modal w-full max-w-sm rounded-[1.7rem] p-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="px-2 pb-2 pt-1">
+              <p className="tg-title text-base font-bold">Действие с сообщением</p>
+              <p className="tg-muted mt-1 line-clamp-2 text-xs">{replyPreview(messageMenu)}</p>
+            </div>
+            <button onClick={() => { setReplyTo(messageMenu); setMessageMenu(null); }} className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-semibold active:bg-slate-100">
+              <Reply size={18} className="text-[#229ed9]" /> Ответить
+            </button>
+            <button onClick={() => void deleteMessage("me")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-semibold text-red-500 active:bg-red-50">
+              <Trash2 size={18} /> Удалить только у себя
+            </button>
+            {messageMenu.senderId === currentUser.id ? (
+              <button onClick={() => void deleteMessage("everyone")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-semibold text-red-600 active:bg-red-50">
+                <Trash2 size={18} /> Удалить у всех
+              </button>
+            ) : null}
+            <button onClick={() => setMessageMenu(null)} className="mt-1 w-full rounded-2xl bg-slate-100 px-3 py-3 text-sm font-bold text-slate-600 active:scale-[0.98]">Отмена</button>
+          </div>
+        </div>
+      ) : null}
 
       {isIncomingRinging && activeCall ? (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-5 backdrop-blur-md">

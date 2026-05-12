@@ -511,3 +511,61 @@ html[data-theme="dark"] .tg-bubble-mine::after {
 html[data-theme="dark"] .tg-bubble-theirs::after {
   background: linear-gradient(180deg, rgba(34,48,61,.98) 0%, rgba(30,42,53,.98) 100%);
 }
+
+/* v18: PWA install gate, smoother chat motion, reply quotes */
+.pwa-gate-card {
+  animation: pwaGateIn .34s cubic-bezier(.18,.89,.32,1.12) both;
+}
+
+@keyframes pwaGateIn {
+  from { opacity: 0; transform: translateY(18px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.tg-chat-row {
+  animation: chatRowIn .22s ease both;
+}
+
+@keyframes chatRowIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.tg-bubble-animated {
+  animation: bubbleIn .2s cubic-bezier(.2,.8,.2,1) both;
+  transition: transform .16s ease, filter .16s ease, box-shadow .16s ease;
+  user-select: none;
+}
+
+.tg-bubble-animated:active {
+  transform: scale(.985) translateX(-3px);
+  filter: saturate(1.05);
+}
+
+@keyframes bubbleIn {
+  from { opacity: 0; transform: translateY(8px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.tg-reply-quote {
+  border-left: 3px solid var(--tg-accent);
+  background: color-mix(in srgb, var(--tg-accent) 12%, transparent);
+  color: inherit;
+}
+
+.tg-bubble-mine .tg-reply-quote {
+  background: rgba(255,255,255,.24);
+}
+
+.tg-modal {
+  animation: modalPop .2s cubic-bezier(.2,.8,.2,1) both;
+}
+
+@keyframes modalPop {
+  from { opacity: 0; transform: translateY(14px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+html[data-theme="dark"] .tg-reply-quote {
+  background: rgba(95,182,232,.14);
+}

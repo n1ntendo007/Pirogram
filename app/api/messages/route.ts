@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { jsonError } from "@/lib/http";
 import { detectMessageType, validateMediaData } from "@/lib/media";
 import { notifyChatMembers } from "@/lib/push";
+import { decryptMessage, decryptMessages, encryptMessageField } from "@/lib/message-crypto";
 
 export const runtime = "nodejs";
 
@@ -13,8 +14,25 @@ const postSchema = z.object({
   text: z.string().trim().max(4000).optional().or(z.literal("")),
   mediaData: z.string().max(6_000_000).optional(),
   mediaMime: z.string().max(100).optional(),
-  mediaName: z.string().max(180).optional()
+  mediaName: z.string().max(180).optional(),
+  replyToId: z.string().min(1).optional().nullable()
 });
+
+function publicUserSelect() {
+  return { id: true, username: true, displayName: true, avatarData: true } as const;
+}
+
+const replySelect = {
+  id: true,
+  chatId: true,
+  senderId: true,
+  type: true,
+  text: true,
+  mediaMime: true,
+  mediaName: true,
+  createdAt: true,
+  sender: { select: { id: true, username: true, displayName: true, avatarData: true } }
+} as const;
 
 const selectMessage = {
   id: true,
@@ -26,7 +44,8 @@ const selectMessage = {
   mediaMime: true,
   mediaName: true,
   createdAt: true,
-  sender: { select: { id: true, username: true, displayName: true, avatarData: true } }
+  replyTo: { select: replySelect },
+  sender: { select: publicUserSelect() }
 } as const;
 
 async function getReaders(chatId: string) {
@@ -70,7 +89,12 @@ export async function GET(request: Request) {
 
   if (statusOnly) {
     const messages = await db.message.findMany({
-      where: { chatId, senderId: user.id },
+      where: {
+        chatId,
+        senderId: user.id,
+        deletedForEveryone: false,
+        hiddenFor: { none: { userId: user.id } }
+      },
       orderBy: { createdAt: "asc" },
       take: 200,
       select: { id: true, senderId: true, createdAt: true }
@@ -81,6 +105,8 @@ export async function GET(request: Request) {
   const messages = await db.message.findMany({
     where: {
       chatId,
+      deletedForEveryone: false,
+      hiddenFor: { none: { userId: user.id } },
       ...(after ? { createdAt: { gt: new Date(after) } } : {})
     },
     orderBy: { createdAt: "asc" },
@@ -88,7 +114,7 @@ export async function GET(request: Request) {
     select: selectMessage
   });
 
-  return NextResponse.json({ messages: attachReadReceipts(messages, readers) });
+  return NextResponse.json({ messages: attachReadReceipts(decryptMessages(messages), readers) });
 }
 
 export async function POST(request: Request) {
@@ -108,16 +134,30 @@ export async function POST(request: Request) {
 
   if (!cleanText && !parsed.data.mediaData) return jsonError("Сообщение не может быть пустым.", 400);
 
+  let replyToId: string | null = null;
+  if (parsed.data.replyToId) {
+    const replyTo = await db.message.findFirst({
+      where: {
+        id: parsed.data.replyToId,
+        chatId: parsed.data.chatId,
+        deletedForEveryone: false
+      },
+      select: { id: true }
+    });
+    if (replyTo) replyToId = replyTo.id;
+  }
+
   const type = parsed.data.mediaData ? detectMessageType(parsed.data.mediaMime) : "TEXT";
 
   const message = await db.message.create({
     data: {
       chatId: parsed.data.chatId,
       senderId: user.id,
-      text: cleanText || null,
-      mediaData: parsed.data.mediaData || null,
+      text: encryptMessageField(cleanText),
+      mediaData: encryptMessageField(parsed.data.mediaData),
       mediaMime: parsed.data.mediaMime || null,
-      mediaName: parsed.data.mediaName || null,
+      mediaName: encryptMessageField(parsed.data.mediaName),
+      replyToId,
       type
     },
     select: selectMessage
@@ -136,5 +176,5 @@ export async function POST(request: Request) {
     url: "/chat"
   }).catch(() => undefined);
 
-  return NextResponse.json({ message: { ...message, readByOthers: false } });
+  return NextResponse.json({ message: { ...decryptMessage(message), readByOthers: false } });
 }

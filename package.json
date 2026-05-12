@@ -1,10 +1,10 @@
 {
   "name": "pirogram",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma migrate deploy && prisma generate && next build",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -12,7 +12,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "push:keys": "web-push generate-vapid-keys"
+    "push:keys": "web-push generate-vapid-keys",
+    "db:encrypt-existing": "node scripts/encrypt-existing-messages.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",

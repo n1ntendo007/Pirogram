@@ -79,3 +79,46 @@ prisma generate && prisma migrate deploy && next build
 4. Найди второго пользователя по `@username`.
 5. Отправь сообщение.
 6. Когда второй пользователь откроет чат, у первого сообщения появятся две галочки.
+
+
+## Шифрование сообщений в базе
+
+Сообщения, медиа и имена файлов шифруются на сервере перед записью в PostgreSQL/Neon через AES-256-GCM. Это шифрование данных в базе, не end-to-end: сервер Vercel расшифровывает данные для участников чата при чтении.
+
+1. Сгенерируй ключ:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+2. Добавь результат в Vercel → Project → Settings → Environment Variables:
+
+```env
+MESSAGE_ENCRYPTION_KEY="вставь_сгенерированный_ключ"
+```
+
+3. После деплоя новые сообщения будут храниться зашифрованными. Чтобы зашифровать старые сообщения, запусти один раз локально или через защищенный job с доступом к DATABASE_URL:
+
+```bash
+npm run prisma:generate
+npm run db:encrypt-existing
+```
+
+## Регион Vercel
+
+В `vercel.json` выставлен регион `arn1` — Stockholm, Sweden. Латвии как compute-region у Vercel нет, это ближайший доступный североевропейский вариант. Статика всё равно раздаётся через CDN Vercel из ближайших PoP к пользователю.
+
+## v18 changes
+
+- Added required PWA install gate: users see Android/iPhone install instructions and the app UI opens only in standalone web-app mode.
+- Added group chats: create a common chat, rename it, invite users by `@username`, and leave the chat.
+- Added message replies: swipe a message left or long-press it and tap Reply.
+- Added message deletion: long-press a message to delete it only for yourself, or delete your own message for everyone.
+- Added polling for chat list changes, so new chats and chat deletions appear without manually reopening the app.
+- Added smoother chat row, bubble, modal, and PWA gate animations.
+
+After deploying this version run the database migration on Vercel/Neon:
+
+```bash
+npx prisma migrate deploy
+```

@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { jsonError } from "@/lib/http";
 import { notifyChatMembers } from "@/lib/push";
+import { encryptMessageField } from "@/lib/message-crypto";
 
 export const runtime = "nodejs";
 
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
       chatId: parsed.data.chatId,
       senderId: user.id,
       type: "CALL",
-      text: parsed.data.kind === "VIDEO" ? "Начал видеозвонок" : "Начал аудиозвонок"
+      text: encryptMessageField(parsed.data.kind === "VIDEO" ? "Начал видеозвонок" : "Начал аудиозвонок")
     }
   });
 

@@ -48,6 +48,7 @@ model User {
   messages          Message[]          @relation("UserMessages")
   pushSubscriptions PushSubscription[]
   callsStarted      CallSession[]      @relation("CallCaller")
+  hiddenMessages    MessageDeletion[]
 
   @@index([login])
   @@index([username])
@@ -92,12 +93,33 @@ model Message {
   mediaName String?
   createdAt DateTime    @default(now())
   editedAt  DateTime?
+  replyToId String?
+  deletedForEveryone Boolean @default(false)
+  deletedAt DateTime?
 
   chat   Chat  @relation(fields: [chatId], references: [id], onDelete: Cascade)
   sender User? @relation("UserMessages", fields: [senderId], references: [id], onDelete: SetNull)
+  replyTo Message? @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies Message[] @relation("MessageReplies")
+  hiddenFor MessageDeletion[]
 
   @@index([chatId, createdAt])
   @@index([senderId])
+  @@index([replyToId])
+}
+
+model MessageDeletion {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([userId])
+  @@index([messageId])
 }
 
 model PushSubscription {
