@@ -569,3 +569,316 @@ html[data-theme="dark"] .tg-bubble-theirs::after {
 html[data-theme="dark"] .tg-reply-quote {
   background: rgba(95,182,232,.14);
 }
+
+/* v19: lively Telegram-like motion, swipe replies, reactions and centered message menu */
+.tg-sidebar {
+  animation: sidebarIn .24s cubic-bezier(.2,.8,.2,1) both;
+}
+
+.tg-chat-panel {
+  animation: chatPanelIn .24s cubic-bezier(.2,.8,.2,1) both;
+}
+
+.tg-chat-header {
+  animation: topBarDrop .24s cubic-bezier(.2,.8,.2,1) both;
+}
+
+.tg-chat-view {
+  animation: chatViewIn .28s cubic-bezier(.2,.8,.2,1) both;
+}
+
+.tg-message-row {
+  animation: messageRowIn .24s cubic-bezier(.2,.8,.2,1) both;
+}
+
+.tg-fade-chip {
+  animation: chipIn .2s cubic-bezier(.2,.8,.2,1) both;
+}
+
+.tg-preview-card,
+.tg-inline-panel,
+.tg-popover,
+.tg-card,
+.tg-tabbar {
+  animation: softRise .22s cubic-bezier(.2,.8,.2,1) both;
+}
+
+.tg-icon-btn,
+.tg-compose-btn,
+.tg-send-btn,
+.tg-tabbar button,
+.tg-chat-row,
+.tg-card button,
+.tg-menu-action,
+.tg-quick-reaction-btn {
+  transition: transform .15s ease, background-color .15s ease, box-shadow .15s ease, opacity .15s ease, filter .15s ease;
+}
+
+.tg-icon-btn:active,
+.tg-compose-btn:active,
+.tg-send-btn:active,
+.tg-tabbar button:active,
+.tg-chat-row:active,
+.tg-card button:active,
+.tg-menu-action:active {
+  transform: scale(.97);
+}
+
+.tg-message-shell {
+  width: fit-content;
+}
+
+.tg-swipe-reply-icon {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  z-index: 0;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--tg-accent);
+  box-shadow: 0 10px 22px color-mix(in srgb, var(--tg-accent) 32%, transparent);
+  opacity: 0;
+  transform: translateY(-50%) scale(.7) rotate(-18deg);
+  transition: opacity .14s ease, transform .14s ease;
+}
+
+.tg-swipe-reply-icon.is-ready {
+  opacity: 1;
+  transform: translateY(-50%) scale(1) rotate(0deg);
+}
+
+.tg-bubble-animated {
+  z-index: 1;
+  will-change: transform;
+}
+
+.tg-bubble-animated:active {
+  transform: scale(.987);
+}
+
+.tg-reaction-row {
+  margin-bottom: -1px;
+}
+
+.tg-reaction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 23px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--tg-accent) 16%, transparent);
+  background: rgba(255,255,255,.48);
+  padding: 2px 7px;
+  font-size: 13px;
+  line-height: 1;
+  box-shadow: 0 4px 12px rgba(15,23,42,.07);
+  animation: reactionPillIn .2s cubic-bezier(.18,.89,.32,1.18) both;
+}
+
+.tg-reaction-pill.is-mine {
+  background: color-mix(in srgb, var(--tg-accent) 18%, rgba(255,255,255,.68));
+  border-color: color-mix(in srgb, var(--tg-accent) 42%, transparent);
+}
+
+.tg-reaction-count {
+  color: var(--tg-meta);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tg-reaction-burst {
+  pointer-events: none;
+  position: absolute;
+  right: 18px;
+  top: -18px;
+  z-index: 5;
+  font-size: 34px;
+  filter: drop-shadow(0 8px 18px rgba(15,23,42,.22));
+  animation: reactionBurst .62s cubic-bezier(.18,.89,.32,1.22) both;
+}
+
+.tg-message-menu {
+  animation: messageMenuIn .2s cubic-bezier(.18,.89,.32,1.12) both;
+}
+
+.tg-reaction-menu {
+  border: 1px solid rgba(255,255,255,.72);
+  background: rgba(255,255,255,.92);
+  backdrop-filter: blur(22px);
+}
+
+.tg-reaction-choice {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 999px;
+  font-size: 27px;
+  background: transparent;
+  transition: transform .14s ease, background-color .14s ease, box-shadow .14s ease;
+}
+
+.tg-reaction-choice:hover,
+.tg-reaction-choice.is-selected {
+  background: color-mix(in srgb, var(--tg-accent) 12%, transparent);
+  box-shadow: 0 8px 24px rgba(15,23,42,.08);
+}
+
+.tg-reaction-choice:active {
+  transform: scale(1.18) translateY(-2px);
+}
+
+.tg-menu-action {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  border-radius: 18px;
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tg-menu-action:hover {
+  background: color-mix(in srgb, var(--tg-accent) 7%, transparent);
+}
+
+.tg-quick-reaction-btn {
+  position: relative;
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--tg-border);
+  background: color-mix(in srgb, var(--tg-accent) 6%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
+}
+
+.tg-quick-reaction-btn.is-selected {
+  border-color: color-mix(in srgb, var(--tg-accent) 52%, transparent);
+  background: color-mix(in srgb, var(--tg-accent) 16%, transparent);
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--tg-accent) 16%, transparent);
+}
+
+.tg-quick-reaction-check {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  color: var(--tg-accent);
+}
+
+@keyframes sidebarIn {
+  from { opacity: 0; transform: translateX(-18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes chatPanelIn {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes topBarDrop {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes chatViewIn {
+  from { opacity: 0; transform: translateY(12px) scale(.992); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes messageRowIn {
+  from { opacity: 0; transform: translateY(8px) scale(.992); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes chipIn {
+  from { opacity: 0; transform: translateY(5px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes softRise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes reactionPillIn {
+  from { opacity: 0; transform: scale(.72) translateY(4px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes reactionBurst {
+  0% { opacity: 0; transform: scale(.45) translateY(18px) rotate(-10deg); }
+  35% { opacity: 1; transform: scale(1.18) translateY(-12px) rotate(7deg); }
+  100% { opacity: 0; transform: scale(.92) translateY(-42px) rotate(0deg); }
+}
+
+@keyframes messageMenuIn {
+  from { opacity: 0; transform: translateY(18px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+html[data-theme="dark"] .tg-reaction-menu {
+  border-color: rgba(255,255,255,.08);
+  background: rgba(32,44,52,.94);
+}
+
+html[data-theme="dark"] .tg-reaction-pill {
+  background: rgba(255,255,255,.10);
+  border-color: rgba(255,255,255,.08);
+}
+
+html[data-theme="dark"] .tg-reaction-pill.is-mine {
+  background: rgba(95,182,232,.20);
+  border-color: rgba(95,182,232,.40);
+}
+
+html[data-theme="dark"] .tg-menu-action:hover,
+html[data-theme="dark"] .tg-reaction-choice:hover,
+html[data-theme="dark"] .tg-reaction-choice.is-selected {
+  background: rgba(255,255,255,.08);
+}
+
+html[data-theme="dark"] .tg-quick-reaction-btn {
+  background: rgba(255,255,255,.05);
+}
+
+html[data-theme="dark"] .tg-quick-reaction-btn.is-selected {
+  background: rgba(95,182,232,.16);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-sidebar,
+  .tg-chat-panel,
+  .tg-chat-header,
+  .tg-chat-view,
+  .tg-message-row,
+  .tg-fade-chip,
+  .tg-preview-card,
+  .tg-inline-panel,
+  .tg-popover,
+  .tg-card,
+  .tg-tabbar,
+  .tg-modal,
+  .pwa-gate-card {
+    animation: none !important;
+  }
+
+  .tg-icon-btn,
+  .tg-compose-btn,
+  .tg-send-btn,
+  .tg-tabbar button,
+  .tg-chat-row,
+  .tg-card button,
+  .tg-menu-action,
+  .tg-quick-reaction-btn,
+  .tg-bubble-animated,
+  .tg-swipe-reply-icon {
+    transition: none !important;
+  }
+}

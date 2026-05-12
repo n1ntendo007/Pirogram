@@ -45,7 +45,8 @@ const selectMessage = {
   mediaName: true,
   createdAt: true,
   replyTo: { select: replySelect },
-  sender: { select: publicUserSelect() }
+  sender: { select: publicUserSelect() },
+  reactions: { select: { emoji: true, userId: true, createdAt: true } }
 } as const;
 
 async function getReaders(chatId: string) {
@@ -97,9 +98,9 @@ export async function GET(request: Request) {
       },
       orderBy: { createdAt: "asc" },
       take: 200,
-      select: { id: true, senderId: true, createdAt: true }
+      select: { id: true, senderId: true, createdAt: true, reactions: { select: { emoji: true, userId: true, createdAt: true } } }
     });
-    return NextResponse.json({ receipts: attachReadReceipts(messages, readers).map((message) => ({ id: message.id, readByOthers: message.readByOthers })) });
+    return NextResponse.json({ receipts: attachReadReceipts(messages, readers).map((message) => ({ id: message.id, readByOthers: message.readByOthers, reactions: message.reactions })) });
   }
 
   const messages = await db.message.findMany({

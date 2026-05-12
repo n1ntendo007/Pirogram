@@ -122,3 +122,11 @@ After deploying this version run the database migration on Vercel/Neon:
 ```bash
 npx prisma migrate deploy
 ```
+
+## v19 reactions and motion
+
+- Added animated swipe-to-reply feedback on messages.
+- Added centered minimal message actions menu.
+- Added reactions with only two allowed emojis: 😘 and ❤️‍🔥.
+- Added quick reaction setting for double tap.
+- Added Prisma migration `20260512073000_message_reactions` for message reactions.

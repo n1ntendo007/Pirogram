@@ -49,6 +49,7 @@ model User {
   pushSubscriptions PushSubscription[]
   callsStarted      CallSession[]      @relation("CallCaller")
   hiddenMessages    MessageDeletion[]
+  reactions         MessageReaction[]
 
   @@index([login])
   @@index([username])
@@ -102,6 +103,7 @@ model Message {
   replyTo Message? @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies Message[] @relation("MessageReplies")
   hiddenFor MessageDeletion[]
+  reactions MessageReaction[]
 
   @@index([chatId, createdAt])
   @@index([senderId])
@@ -120,6 +122,21 @@ model MessageDeletion {
   @@unique([messageId, userId])
   @@index([userId])
   @@index([messageId])
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId])
+  @@index([messageId])
+  @@index([userId])
 }
 
 model PushSubscription {

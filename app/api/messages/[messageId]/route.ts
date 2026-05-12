@@ -55,6 +55,7 @@ export async function DELETE(request: Request, context: RouteContext) {
         mediaName: null
       }
     });
+    await db.messageReaction.deleteMany({ where: { messageId: message.id } });
     await db.chat.update({ where: { id: message.chatId }, data: { updatedAt: new Date() } });
     return NextResponse.json({ ok: true, scope: "everyone" });
   }

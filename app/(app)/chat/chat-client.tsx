@@ -17,6 +17,7 @@ import {
   Reply,
   Search,
   Send,
+  SmilePlus,
   Smartphone,
   TestTube2,
   Trash2,
@@ -53,6 +54,12 @@ type ReplyPreviewMessage = {
   sender?: User | null;
 };
 
+type MessageReaction = {
+  emoji: ReactionEmoji;
+  userId: string;
+  createdAt?: string;
+};
+
 type Message = {
   id: string;
   chatId: string;
@@ -66,6 +73,7 @@ type Message = {
   sender?: User | null;
   readByOthers?: boolean;
   replyTo?: ReplyPreviewMessage | null;
+  reactions?: MessageReaction[];
 };
 
 type Chat = {
@@ -117,6 +125,9 @@ type SignalIce = {
 type AudioOutputElement = HTMLAudioElement & {
   setSinkId?: (sinkId: string) => Promise<void>;
 };
+
+const REACTION_EMOJIS = ["😘", "❤️‍🔥"] as const;
+type ReactionEmoji = typeof REACTION_EMOJIS[number];
 
 const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
 const ICE_SERVERS: RTCIceServer[] = [
@@ -178,6 +189,17 @@ function parseUsernames(value: string) {
   return [...new Set(value.split(/[\s,;]+/).map((item) => item.trim().replace(/^@+/, "").toLowerCase()).filter(Boolean))];
 }
 
+function isReactionEmoji(value: unknown): value is ReactionEmoji {
+  return typeof value === "string" && (REACTION_EMOJIS as readonly string[]).includes(value);
+}
+
+function summarizeReactions(reactions: MessageReaction[] | undefined, currentUserId: string) {
+  return REACTION_EMOJIS.map((emoji) => {
+    const items = (reactions ?? []).filter((reaction) => reaction.emoji === emoji);
+    return { emoji, count: items.length, reactedByMe: items.some((reaction) => reaction.userId === currentUserId) };
+  }).filter((reaction) => reaction.count > 0);
+}
+
 async function fileToDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -208,6 +230,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [groupBusy, setGroupBusy] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [messageMenu, setMessageMenu] = useState<Message | null>(null);
+  const [quickReaction, setQuickReaction] = useState<ReactionEmoji>("😘");
+  const [swipeState, setSwipeState] = useState<{ id: string; dx: number; ready: boolean } | null>(null);
+  const [reactionBurst, setReactionBurst] = useState<{ id: string; emoji: ReactionEmoji } | null>(null);
   const [sending, setSending] = useState(false);
   const [loadingChats, setLoadingChats] = useState(true);
   const [mobileListOpen, setMobileListOpen] = useState(true);
@@ -240,6 +265,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const pendingLocalIceRef = useRef<SignalIce[]>([]);
   const messagePointerStartRef = useRef<{ x: number; y: number; id: string } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
+  const lastTapRef = useRef<{ id: string; at: number } | null>(null);
 
   const activeChat = useMemo(() => chats.find((chat) => chat.id === activeChatId), [chats, activeChatId]);
   const lastMessageDate = messages[messages.length - 1]?.createdAt;
@@ -253,6 +280,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   useEffect(() => {
     const saved = window.localStorage.getItem("pirogram_theme");
     if (saved === "dark" || saved === "light") setTheme(saved);
+
+    const savedReaction = window.localStorage.getItem("pirogram_quick_reaction");
+    if (isReactionEmoji(savedReaction)) setQuickReaction(savedReaction);
   }, []);
 
   useEffect(() => {
@@ -438,8 +468,13 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     const response = await fetch(`/api/messages?chatId=${encodeURIComponent(chatId)}&statusOnly=1`);
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.receipts?.length) return;
-    const receipts = new Map<string, boolean>(data.receipts.map((item: { id: string; readByOthers: boolean }) => [item.id, item.readByOthers] as [string, boolean]));
-    setMessages((current) => current.map((message) => receipts.has(message.id) ? { ...message, readByOthers: receipts.get(message.id) } : message));
+    const receipts = new Map<string, { readByOthers: boolean; reactions?: MessageReaction[] }>(
+      data.receipts.map((item: { id: string; readByOthers: boolean; reactions?: MessageReaction[] }) => [item.id, { readByOthers: item.readByOthers, reactions: item.reactions }] as [string, { readByOthers: boolean; reactions?: MessageReaction[] }])
+    );
+    setMessages((current) => current.map((message) => {
+      const receipt = receipts.get(message.id);
+      return receipt ? { ...message, readByOthers: receipt.readByOthers, reactions: receipt.reactions ?? message.reactions } : message;
+    }));
   }
 
   async function startPrivateChat(username: string) {
@@ -764,33 +799,116 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     longPressTimerRef.current = null;
   }
 
+  function changeQuickReaction(emoji: ReactionEmoji) {
+    setQuickReaction(emoji);
+    window.localStorage.setItem("pirogram_quick_reaction", emoji);
+  }
+
   function startMessagePointer(event: React.PointerEvent, message: Message) {
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Some browsers do not allow pointer capture on every element.
+    }
     messagePointerStartRef.current = { x: event.clientX, y: event.clientY, id: message.id };
+    longPressTriggeredRef.current = false;
+    setSwipeState(null);
     clearMessageGesture();
     longPressTimerRef.current = window.setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      setSwipeState(null);
       setMessageMenu(message);
       if (navigator.vibrate) navigator.vibrate(35);
-    }, 620);
+    }, 520);
+  }
+
+  function moveMessagePointer(event: React.PointerEvent, message: Message) {
+    const start = messagePointerStartRef.current;
+    if (!start || start.id !== message.id || longPressTriggeredRef.current) return;
+    const dx = event.clientX - start.x;
+    const dy = event.clientY - start.y;
+    if (Math.abs(dy) > 54) {
+      setSwipeState(null);
+      return;
+    }
+    if (dx < -8) {
+      clearMessageGesture();
+      const clamped = Math.max(dx, -92);
+      setSwipeState({ id: message.id, dx: clamped, ready: clamped < -46 });
+    } else if (swipeState?.id === message.id) {
+      setSwipeState(null);
+    }
+  }
+
+  function handleMessageTap(message: Message) {
+    const now = Date.now();
+    const previous = lastTapRef.current;
+    if (previous?.id === message.id && now - previous.at < 310) {
+      lastTapRef.current = null;
+      void toggleReaction(message, quickReaction);
+      return;
+    }
+    lastTapRef.current = { id: message.id, at: now };
   }
 
   function endMessagePointer(event: React.PointerEvent, message: Message) {
     const start = messagePointerStartRef.current;
     clearMessageGesture();
     messagePointerStartRef.current = null;
-    if (!start || start.id !== message.id) return;
+    const wasLongPress = longPressTriggeredRef.current;
+    longPressTriggeredRef.current = false;
+    if (!start || start.id !== message.id || wasLongPress) {
+      setSwipeState(null);
+      return;
+    }
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
-    if (dx < -45 && Math.abs(dy) < 42) {
+    const wasSwipe = dx < -45 && Math.abs(dy) < 42;
+    if (wasSwipe) {
       setReplyTo(message);
       if (navigator.vibrate) navigator.vibrate(20);
+    } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+      handleMessageTap(message);
+    }
+    window.setTimeout(() => setSwipeState((current) => current?.id === message.id ? null : current), 110);
+  }
+
+  function applyMessageReactions(messageId: string, reactions: MessageReaction[]) {
+    setMessages((current) => current.map((message) => message.id === messageId ? { ...message, reactions } : message));
+    setMessageMenu((current) => current?.id === messageId ? { ...current, reactions } : current);
+  }
+
+  async function toggleReaction(message: Message, emoji: ReactionEmoji) {
+    const currentReaction = message.reactions?.find((reaction) => reaction.userId === currentUser.id);
+    const isRemoving = currentReaction?.emoji === emoji;
+    const optimisticReactions = isRemoving
+      ? (message.reactions ?? []).filter((reaction) => reaction.userId !== currentUser.id)
+      : [...(message.reactions ?? []).filter((reaction) => reaction.userId !== currentUser.id), { emoji, userId: currentUser.id }];
+
+    applyMessageReactions(message.id, optimisticReactions);
+    if (!isRemoving) {
+      setReactionBurst({ id: message.id, emoji });
+      window.setTimeout(() => setReactionBurst((current) => current?.id === message.id ? null : current), 650);
+      if (navigator.vibrate) navigator.vibrate(15);
+    }
+
+    const response = await fetch(`/api/messages/${encodeURIComponent(message.id)}/reactions`, {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ emoji })
+    });
+    const data = await response.json().catch(() => null);
+    if (response.ok && data?.reactions) {
+      applyMessageReactions(message.id, data.reactions as MessageReaction[]);
+    } else {
+      if (activeChatId) void loadMessages(activeChatId);
     }
   }
 
   async function deleteMessage(scope: "me" | "everyone") {
     if (!messageMenu) return;
     const message = messageMenu;
-    const confirmed = window.confirm(scope === "everyone" ? "Удалить это сообщение у всех?" : "Удалить это сообщение только у себя?");
-    if (!confirmed) return;
     const response = await fetch(`/api/messages/${encodeURIComponent(message.id)}`, {
       method: "DELETE",
       credentials: "include",
@@ -1442,6 +1560,26 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
               <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
                 <div className="border-b border-slate-100 px-4 py-3">
+                  <p className="text-sm font-semibold text-slate-950">Реакция двойным тапом</p>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">Выбери смайлик: потом дважды тапни по сообщению, чтобы поставить или убрать реакцию.</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 p-3">
+                  {REACTION_EMOJIS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => changeQuickReaction(emoji)}
+                      className={`tg-quick-reaction-btn rounded-2xl px-4 py-3 text-2xl font-semibold active:scale-[0.97] ${quickReaction === emoji ? "is-selected" : ""}`}
+                    >
+                      <span>{emoji}</span>
+                      {quickReaction === emoji ? <Check size={17} className="tg-quick-reaction-check" /> : null}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
+                <div className="border-b border-slate-100 px-4 py-3">
                   <p className="text-sm font-semibold text-slate-950">Оформление</p>
                   <p className="mt-1 text-xs text-slate-500">Выбери светлую или тёмную тему.</p>
                 </div>
@@ -1528,41 +1666,67 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
           {callNotice ? <p className="tg-inline-panel tg-muted border-b border-slate-200 px-4 py-2 text-center text-xs">{callNotice}</p> : null}
 
           <div ref={scrollRef} className="tg-message-area no-scrollbar flex-1 overflow-y-auto px-3 py-4 sm:px-5">
-            <div className="tg-message-stack mx-auto flex max-w-4xl flex-col gap-1.5">
+            <div key={activeChatId || "empty-chat"} className="tg-message-stack tg-chat-view mx-auto flex max-w-4xl flex-col gap-1.5">
               {messages.map((message, index) => {
                 const mine = message.senderId === currentUser.id;
                 const prev = messages[index - 1];
                 const showDay = !prev || dayLabel(prev.createdAt) !== dayLabel(message.createdAt);
                 const previousSameSender = !showDay && prev?.senderId === message.senderId;
+                const swipe = swipeState?.id === message.id ? swipeState : null;
+                const reactionSummary = summarizeReactions(message.reactions, currentUser.id);
                 return (
-                  <div key={message.id}>
+                  <div key={message.id} className="tg-message-row" style={{ animationDelay: `${Math.min(index * 16, 160)}ms` }}>
                     {showDay ? (
                       <div className="my-3 flex justify-center">
-                        <span className="tg-day-chip rounded-full px-3 py-1 text-[12px] font-medium backdrop-blur">{dayLabel(message.createdAt)}</span>
+                        <span className="tg-day-chip tg-fade-chip rounded-full px-3 py-1 text-[12px] font-medium backdrop-blur">{dayLabel(message.createdAt)}</span>
                       </div>
                     ) : null}
                     <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                      <div
-                        onPointerDown={(event) => startMessagePointer(event, message)}
-                        onPointerUp={(event) => endMessagePointer(event, message)}
-                        onPointerCancel={clearMessageGesture}
-                        onPointerLeave={clearMessageGesture}
-                        onContextMenu={(event) => { event.preventDefault(); setMessageMenu(message); }}
-                        className={`tg-bubble tg-bubble-animated max-w-[78%] touch-pan-y text-[14px] sm:max-w-[62%] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"} ${previousSameSender ? "tg-bubble-tight" : ""}`}
-                      >
-                        {!mine && !previousSameSender ? <p className="tg-bubble-author mb-1 text-[11px] font-semibold">{message.sender?.displayName || message.sender?.username || "Pirogram"}</p> : null}
-                        {message.replyTo ? (
-                          <div className="tg-reply-quote mb-1.5 rounded-xl px-2.5 py-1.5 text-xs">
-                            <p className="truncate font-bold">{message.replyTo.sender?.displayName || message.replyTo.sender?.username || "Pirogram"}</p>
-                            <p className="truncate opacity-80">{replyPreview(message.replyTo)}</p>
+                      <div className="tg-message-shell relative max-w-[78%] sm:max-w-[62%]">
+                        <div className={`tg-swipe-reply-icon ${swipe?.ready ? "is-ready" : ""}`} aria-hidden="true">
+                          <Reply size={17} />
+                        </div>
+                        {reactionBurst?.id === message.id ? <div className="tg-reaction-burst" aria-hidden="true">{reactionBurst.emoji}</div> : null}
+                        <div
+                          onPointerDown={(event) => startMessagePointer(event, message)}
+                          onPointerMove={(event) => moveMessagePointer(event, message)}
+                          onPointerUp={(event) => endMessagePointer(event, message)}
+                          onPointerCancel={() => { clearMessageGesture(); setSwipeState(null); }}
+                          onPointerLeave={() => { clearMessageGesture(); setSwipeState(null); }}
+                          onContextMenu={(event) => { event.preventDefault(); setMessageMenu(message); }}
+                          style={swipe ? { transform: `translateX(${swipe.dx}px)`, transition: "none" } : undefined}
+                          className={`tg-bubble tg-bubble-animated max-w-full touch-pan-y text-[14px] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"} ${previousSameSender ? "tg-bubble-tight" : ""}`}
+                        >
+                          {!mine && !previousSameSender ? <p className="tg-bubble-author mb-1 text-[11px] font-semibold">{message.sender?.displayName || message.sender?.username || "Pirogram"}</p> : null}
+                          {message.replyTo ? (
+                            <div className="tg-reply-quote mb-1.5 rounded-xl px-2.5 py-1.5 text-xs">
+                              <p className="truncate font-bold">{message.replyTo.sender?.displayName || message.replyTo.sender?.username || "Pirogram"}</p>
+                              <p className="truncate opacity-80">{replyPreview(message.replyTo)}</p>
+                            </div>
+                          ) : null}
+                          {message.mediaData && message.type === "IMAGE" ? <img src={message.mediaData} alt={message.mediaName || "Фото"} className="tg-bubble-media mb-2 max-h-80 w-full object-cover" /> : null}
+                          {message.mediaData && message.type === "VIDEO" ? <video src={message.mediaData} controls playsInline className="tg-bubble-media mb-2 max-h-80 w-full" /> : null}
+                          {message.text ? <p className="whitespace-pre-wrap break-words leading-6">{message.text}</p> : null}
+                          <div className="tg-bubble-meta ml-8 mt-1 flex items-center justify-end gap-1 text-[11px]">
+                            <span>{timeLabel(message.createdAt)}</span>
+                            {mine ? (message.readByOthers ? <CheckCheck size={15} strokeWidth={2.4} /> : <Check size={15} strokeWidth={2.4} />) : null}
                           </div>
-                        ) : null}
-                        {message.mediaData && message.type === "IMAGE" ? <img src={message.mediaData} alt={message.mediaName || "Фото"} className="tg-bubble-media mb-2 max-h-80 w-full object-cover" /> : null}
-                        {message.mediaData && message.type === "VIDEO" ? <video src={message.mediaData} controls playsInline className="tg-bubble-media mb-2 max-h-80 w-full" /> : null}
-                        {message.text ? <p className="whitespace-pre-wrap break-words leading-6">{message.text}</p> : null}
-                        <div className="tg-bubble-meta ml-8 mt-1 flex items-center justify-end gap-1 text-[11px]">
-                          <span>{timeLabel(message.createdAt)}</span>
-                          {mine ? (message.readByOthers ? <CheckCheck size={15} strokeWidth={2.4} /> : <Check size={15} strokeWidth={2.4} />) : null}
+                          {reactionSummary.length ? (
+                            <div className="tg-reaction-row mt-1.5 flex flex-wrap gap-1">
+                              {reactionSummary.map((reaction) => (
+                                <button
+                                  key={reaction.emoji}
+                                  type="button"
+                                  onClick={() => void toggleReaction(message, reaction.emoji)}
+                                  className={`tg-reaction-pill ${reaction.reactedByMe ? "is-mine" : ""}`}
+                                  aria-label={`Реакция ${reaction.emoji}`}
+                                >
+                                  <span>{reaction.emoji}</span>
+                                  {reaction.count > 1 ? <span className="tg-reaction-count">{reaction.count}</span> : null}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -1614,24 +1778,45 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       </div>
 
       {messageMenu ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 p-3 backdrop-blur-sm sm:items-center" onClick={() => setMessageMenu(null)}>
-          <div className="tg-modal w-full max-w-sm rounded-[1.7rem] p-3 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="px-2 pb-2 pt-1">
-              <p className="tg-title text-base font-bold">Действие с сообщением</p>
-              <p className="tg-muted mt-1 line-clamp-2 text-xs">{replyPreview(messageMenu)}</p>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-5 backdrop-blur-md" onClick={() => setMessageMenu(null)}>
+          <div className="tg-message-menu w-full max-w-[330px]" onClick={(event) => event.stopPropagation()}>
+            <div className="tg-reaction-menu mx-auto mb-3 flex w-fit items-center gap-2 rounded-full px-2.5 py-2 shadow-2xl">
+              {REACTION_EMOJIS.map((emoji) => {
+                const reacted = messageMenu.reactions?.some((reaction) => reaction.userId === currentUser.id && reaction.emoji === emoji);
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => { void toggleReaction(messageMenu, emoji); setMessageMenu(null); }}
+                    className={`tg-reaction-choice ${reacted ? "is-selected" : ""}`}
+                    aria-label={`Поставить ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                );
+              })}
             </div>
-            <button onClick={() => { setReplyTo(messageMenu); setMessageMenu(null); }} className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-semibold active:bg-slate-100">
-              <Reply size={18} className="text-[#229ed9]" /> Ответить
-            </button>
-            <button onClick={() => void deleteMessage("me")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-semibold text-red-500 active:bg-red-50">
-              <Trash2 size={18} /> Удалить только у себя
-            </button>
-            {messageMenu.senderId === currentUser.id ? (
-              <button onClick={() => void deleteMessage("everyone")} className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-semibold text-red-600 active:bg-red-50">
-                <Trash2 size={18} /> Удалить у всех
-              </button>
-            ) : null}
-            <button onClick={() => setMessageMenu(null)} className="mt-1 w-full rounded-2xl bg-slate-100 px-3 py-3 text-sm font-bold text-slate-600 active:scale-[0.98]">Отмена</button>
+
+            <div className="tg-modal rounded-[1.7rem] p-2.5 shadow-2xl">
+              <div className="px-3 pb-2 pt-2 text-center">
+                <p className="tg-title text-sm font-bold">Сообщение</p>
+                <p className="tg-muted mx-auto mt-1 line-clamp-2 max-w-[240px] text-xs">{replyPreview(messageMenu)}</p>
+              </div>
+              <div className="grid gap-1">
+                <button onClick={() => { setReplyTo(messageMenu); setMessageMenu(null); }} className="tg-menu-action">
+                  <Reply size={18} className="text-[#229ed9]" /> Ответить
+                </button>
+                <button onClick={() => void deleteMessage("me")} className="tg-menu-action text-red-500">
+                  <Trash2 size={18} /> Удалить у себя
+                </button>
+                {messageMenu.senderId === currentUser.id ? (
+                  <button onClick={() => void deleteMessage("everyone")} className="tg-menu-action text-red-600">
+                    <Trash2 size={18} /> Удалить у всех
+                  </button>
+                ) : null}
+              </div>
+              <button onClick={() => setMessageMenu(null)} className="mt-2 w-full rounded-2xl bg-slate-100 px-3 py-3 text-sm font-bold text-slate-600 active:scale-[0.98]">Закрыть</button>
+            </div>
           </div>
         </div>
       ) : null}
