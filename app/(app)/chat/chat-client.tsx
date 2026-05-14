@@ -199,6 +199,16 @@ function formatVoiceDuration(totalSeconds: number) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
+function parseVoiceDurationFromName(name?: string | null) {
+  if (!name) return 0;
+  const match = name.match(/(\d{1,2}):(\d{2})/);
+  if (!match) return 0;
+  const minutes = Number(match[1]);
+  const seconds = Number(match[2]);
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return 0;
+  return Math.max(0, minutes * 60 + seconds);
+}
+
 function chatPreview(message?: Omit<Message, "mediaData">) {
   if (!message) return "Нет сообщений";
   if (isAudioMime(message.mediaMime)) return "🎤 Голосовое";
@@ -280,29 +290,54 @@ async function cropAvatarToSquare(editor: AvatarEditorState) {
 
 function VoiceNote({ src, name }: { src: string; name?: string | null }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const fallbackDuration = useMemo(() => parseVoiceDurationFromName(name), [name]);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(fallbackDuration);
+  const [position, setPosition] = useState(0);
+
+  useEffect(() => {
+    setDuration(fallbackDuration);
+    setPosition(0);
+    setProgress(0);
+    setPlaying(false);
+  }, [fallbackDuration, src]);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const onTime = () => setProgress(audio.duration ? audio.currentTime / audio.duration : 0);
-    const onMeta = () => setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+    const syncMeta = () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration);
+      } else if (fallbackDuration > 0) {
+        setDuration(fallbackDuration);
+      }
+    };
+    const onTime = () => {
+      const total = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : fallbackDuration;
+      setPosition(audio.currentTime || 0);
+      setProgress(total ? Math.min(1, audio.currentTime / total) : 0);
+    };
     const onEnded = () => {
       setPlaying(false);
       setProgress(0);
+      setPosition(0);
       audio.currentTime = 0;
     };
     audio.addEventListener("timeupdate", onTime);
-    audio.addEventListener("loadedmetadata", onMeta);
+    audio.addEventListener("loadedmetadata", syncMeta);
+    audio.addEventListener("durationchange", syncMeta);
+    audio.addEventListener("canplay", syncMeta);
     audio.addEventListener("ended", onEnded);
+    syncMeta();
     return () => {
       audio.removeEventListener("timeupdate", onTime);
-      audio.removeEventListener("loadedmetadata", onMeta);
+      audio.removeEventListener("loadedmetadata", syncMeta);
+      audio.removeEventListener("durationchange", syncMeta);
+      audio.removeEventListener("canplay", syncMeta);
       audio.removeEventListener("ended", onEnded);
     };
-  }, [src]);
+  }, [fallbackDuration, src]);
 
   async function togglePlayback() {
     const audio = audioRef.current;
@@ -316,6 +351,8 @@ function VoiceNote({ src, name }: { src: string; name?: string | null }) {
     }
   }
 
+  const visibleSeconds = playing && position > 0 ? position : duration;
+
   return (
     <div className="tg-voice-note" aria-label={name || "Голосовое сообщение"}>
       <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={() => void togglePlayback()} className="tg-voice-play" aria-label={playing ? "Пауза" : "Воспроизвести"}>
@@ -327,7 +364,7 @@ function VoiceNote({ src, name }: { src: string; name?: string | null }) {
         </div>
         <div className="tg-voice-caption">
           <span>Голосовое</span>
-          <span>{formatVoiceDuration(duration)}</span>
+          <span>{formatVoiceDuration(visibleSeconds)}</span>
         </div>
       </div>
       <audio ref={audioRef} src={src} preload="metadata" className="hidden" />
@@ -2069,6 +2106,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
             </div>
           ) : activeTab === "settings" ? (
             <div className="tg-settings no-scrollbar flex-1 overflow-y-auto p-4">
+              <input ref={profileAvatarRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void openAvatarEditor(file, "user"); }} />
               {settingsPage === "main" ? (
                 <>
                   <div className="tg-card mb-4 rounded-3xl p-4 shadow-sm">
@@ -2077,7 +2115,6 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                         {profileUser.avatarData ? <img src={profileUser.avatarData} alt="" className="h-16 w-16 rounded-full object-cover" /> : <div className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-2xl font-bold text-white">{avatarLabel(profileUser.displayName)}</div>}
                         <span className="absolute inset-0 grid place-items-center rounded-full bg-black/35 text-white opacity-0 transition group-hover:opacity-100"><Camera size={20} /></span>
                       </button>
-                      <input ref={profileAvatarRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void openAvatarEditor(file, "user"); }} />
                       <button type="button" onClick={() => setSettingsPage("profile")} className="min-w-0 flex-1 text-left active:opacity-70">
                         <p className="truncate text-xl font-bold text-slate-950">{profileUser.displayName}</p>
                         <p className="truncate text-sm text-[#229ed9]">@{profileUser.username}</p>
@@ -2131,6 +2168,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                       <span className="absolute inset-0 grid place-items-center bg-black/35 opacity-0 transition group-hover:opacity-100"><Camera size={24} /></span>
                     </button>
                     <p className="tg-muted mt-3 text-xs">Нажми на аватарку, чтобы поменять фото.</p>
+                    <button type="button" onClick={() => profileAvatarRef.current?.click()} className="mt-3 rounded-full bg-[#229ed9]/10 px-4 py-2 text-sm font-bold text-[#229ed9] active:scale-[0.98]">Изменить фото</button>
                   </div>
 
                   <div className="tg-card overflow-hidden rounded-3xl p-4 shadow-sm">
@@ -2347,6 +2385,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                 const previousSameSender = !showDay && prev?.senderId === message.senderId;
                 const swipe = swipeState?.id === message.id ? swipeState : null;
                 const reactionSummary = summarizeReactions(message.reactions, currentUser.id);
+                const showIncomingIdentity = !mine && activeChat?.type === "GROUP";
                 return (
                   <div key={message.id} className="tg-message-row" style={{ animationDelay: `${Math.min(index * 16, 160)}ms` }}>
                     {showDay ? (
@@ -2355,7 +2394,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                       </div>
                     ) : null}
                     <div className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
-                      {!mine ? (
+                      {showIncomingIdentity ? (
                         <button type="button" onClick={() => openUserProfile(message.sender)} disabled={previousSameSender || !message.sender} className={`shrink-0 rounded-full ${previousSameSender ? "pointer-events-none" : "active:scale-95"}`}>
                           {message.sender?.avatarData ? <img src={message.sender.avatarData} alt="" className={`h-8 w-8 rounded-full object-cover ${previousSameSender ? "opacity-0" : ""}`} /> : <div className={`grid h-8 w-8 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white ${previousSameSender ? "opacity-0" : ""}`}>{avatarLabel(message.sender?.displayName || message.sender?.username)}</div>}
                         </button>
@@ -2375,7 +2414,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                           style={swipe ? { transform: `translateX(${swipe.dx}px)`, transition: "none" } : undefined}
                           className={`tg-bubble tg-bubble-animated max-w-full touch-pan-y text-[14px] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"} ${previousSameSender ? "tg-bubble-tight" : ""}`}
                         >
-                          {!mine && !previousSameSender ? <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={() => openUserProfile(message.sender)} className="tg-bubble-author mb-1 block text-left text-[11px] font-semibold">{message.sender?.displayName || message.sender?.username || "Pirogram"}</button> : null}
+                          {showIncomingIdentity && !previousSameSender ? <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={() => openUserProfile(message.sender)} className="tg-bubble-author mb-1 block text-left text-[11px] font-semibold">{message.sender?.displayName || message.sender?.username || "Pirogram"}</button> : null}
                           {message.replyTo ? (
                             <div className="tg-reply-quote mb-1.5 rounded-xl px-2.5 py-1.5 text-xs">
                               <p className="truncate font-bold">{message.replyTo.sender?.displayName || message.replyTo.sender?.username || "Pirogram"}</p>
