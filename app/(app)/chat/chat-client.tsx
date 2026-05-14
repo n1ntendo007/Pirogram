@@ -283,6 +283,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [inviteResults, setInviteResults] = useState<User[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [messageMenu, setMessageMenu] = useState<Message | null>(null);
+  const [pressedMessageId, setPressedMessageId] = useState<string | null>(null);
   const [quickReaction, setQuickReaction] = useState<ReactionEmoji>("😘");
   const [swipeState, setSwipeState] = useState<{ id: string; dx: number; ready: boolean } | null>(null);
   const [reactionBurst, setReactionBurst] = useState<{ id: string; emoji: ReactionEmoji } | null>(null);
@@ -302,6 +303,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [callCameraOff, setCallCameraOff] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(false);
   const [audioRouteStatus, setAudioRouteStatus] = useState("Обычный звук");
+  const [audioNeedsTap, setAudioNeedsTap] = useState(false);
   const [mediaPermissionStatus, setMediaPermissionStatus] = useState("Микрофон/камера ещё не проверены");
   const [iceServers, setIceServers] = useState<RTCIceServer[]>(DEFAULT_ICE_SERVERS);
   const [turnReady, setTurnReady] = useState(false);
@@ -331,6 +333,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const signalStartedRef = useRef<string | null>(null);
   const addedIceKeysRef = useRef<Set<string>>(new Set());
   const pendingLocalIceRef = useRef<SignalIce[]>([]);
+  const iceFlushTimerRef = useRef<number | null>(null);
   const messagePointerStartRef = useRef<{ x: number; y: number; id: string } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
@@ -438,6 +441,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   useEffect(() => {
     setReplyTo(null);
     setMessageMenu(null);
+    setPressedMessageId(null);
+    setSwipeState(null);
     if (!activeChatId) return;
     void loadMessages(activeChatId);
   }, [activeChatId]);
@@ -494,17 +499,11 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   }, [localStream, activeCall?.id, activeCall?.status]);
 
   useEffect(() => {
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = remoteStream;
-      if (remoteStream) void remoteVideoRef.current.play().catch(() => undefined);
+    attachRemoteStream(remoteStream);
+    if (remoteStream) {
+      void unlockRemoteAudio();
+      void applyAudioRoute(speakerOn);
     }
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.srcObject = remoteStream;
-      remoteAudioRef.current.volume = 1;
-      remoteAudioRef.current.muted = false;
-      if (remoteStream) void remoteAudioRef.current.play().catch(() => undefined);
-    }
-    if (remoteStream) void applyAudioRoute(speakerOn);
   }, [remoteStream, activeCall?.id, activeCall?.status, speakerOn]);
 
   useEffect(() => {
@@ -538,14 +537,22 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     if (!options?.silent && data.isAdmin) void loadAdminAliases();
   }
 
-  async function loadIceServers() {
-    const response = await fetch("/api/calls/ice", { credentials: "include" }).catch(() => null);
+  async function fetchIceServers() {
+    const response = await fetch("/api/calls/ice", { credentials: "include", cache: "no-store" }).catch(() => null);
     const data = response ? await response.json().catch(() => null) : null;
     if (response?.ok && Array.isArray(data?.iceServers)) {
-      setIceServers(data.iceServers);
-      setTurnReady(Boolean(data.hasTurn));
-      setMediaPermissionStatus(data.hasTurn ? "Звонки готовы: STUN + TURN подключены" : "STUN включён. Для разных сетей лучше добавить TURN_URLS в Vercel");
+      const nextIceServers = data.iceServers as RTCIceServer[];
+      const hasTurn = Boolean(data.hasTurn);
+      setIceServers(nextIceServers);
+      setTurnReady(hasTurn);
+      setMediaPermissionStatus(hasTurn ? "Звонки готовы: STUN + TURN подключены" : "STUN включён. Для разных сетей лучше добавить TURN_URLS в Vercel");
+      return { iceServers: nextIceServers, hasTurn };
     }
+    return { iceServers, hasTurn: turnReady };
+  }
+
+  async function loadIceServers() {
+    await fetchIceServers();
   }
 
   async function loadAdminAliases() {
@@ -1081,6 +1088,12 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     longPressTimerRef.current = null;
   }
 
+  function clearMessageInteraction() {
+    clearMessageGesture();
+    setPressedMessageId(null);
+    setSwipeState(null);
+  }
+
   function changeQuickReaction(emoji: ReactionEmoji) {
     setQuickReaction(emoji);
     window.localStorage.setItem("pirogram_quick_reaction", emoji);
@@ -1094,14 +1107,16 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     }
     messagePointerStartRef.current = { x: event.clientX, y: event.clientY, id: message.id };
     longPressTriggeredRef.current = false;
+    setPressedMessageId(message.id);
     setSwipeState(null);
     clearMessageGesture();
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTriggeredRef.current = true;
+      setPressedMessageId(null);
       setSwipeState(null);
       setMessageMenu(message);
-      if (navigator.vibrate) navigator.vibrate(35);
-    }, 520);
+      if (navigator.vibrate) navigator.vibrate([20, 30, 20]);
+    }, 460);
   }
 
   function moveMessagePointer(event: React.PointerEvent, message: Message) {
@@ -1110,13 +1125,16 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
     if (Math.abs(dy) > 54) {
+      setPressedMessageId(null);
       setSwipeState(null);
       return;
     }
     if (dx < -8) {
+      if (event.cancelable) event.preventDefault();
+      setPressedMessageId(null);
       clearMessageGesture();
-      const clamped = Math.max(dx, -92);
-      setSwipeState({ id: message.id, dx: clamped, ready: clamped < -46 });
+      const clamped = Math.max(dx, -104);
+      setSwipeState({ id: message.id, dx: clamped, ready: clamped < -50 });
     } else if (swipeState?.id === message.id) {
       setSwipeState(null);
     }
@@ -1136,6 +1154,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   function endMessagePointer(event: React.PointerEvent, message: Message) {
     const start = messagePointerStartRef.current;
     clearMessageGesture();
+    setPressedMessageId(null);
     messagePointerStartRef.current = null;
     const wasLongPress = longPressTriggeredRef.current;
     longPressTriggeredRef.current = false;
@@ -1145,14 +1164,14 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     }
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
-    const wasSwipe = dx < -45 && Math.abs(dy) < 42;
+    const wasSwipe = dx < -50 && Math.abs(dy) < 42;
     if (wasSwipe) {
       setReplyTo(message);
-      if (navigator.vibrate) navigator.vibrate(20);
+      if (navigator.vibrate) navigator.vibrate([12, 18, 12]);
     } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
       handleMessageTap(message);
     }
-    window.setTimeout(() => setSwipeState((current) => current?.id === message.id ? null : current), 110);
+    window.setTimeout(() => setSwipeState((current) => current?.id === message.id ? null : current), 130);
   }
 
   function applyMessageReactions(messageId: string, reactions: MessageReaction[]) {
@@ -1235,8 +1254,13 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     setCallCameraOff(false);
     setSpeakerOn(false);
     setAudioRouteStatus("Обычный звук");
+    setAudioNeedsTap(false);
     addedIceKeysRef.current = new Set();
     pendingLocalIceRef.current = [];
+    if (iceFlushTimerRef.current) {
+      window.clearTimeout(iceFlushTimerRef.current);
+      iceFlushTimerRef.current = null;
+    }
     signalStartedRef.current = null;
     callRoleRef.current = null;
   }
@@ -1337,10 +1361,11 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     return stream;
   }
 
-  async function sendIceCandidate(role: "caller" | "receiver", candidate: SignalIce) {
+  async function sendIceCandidates(role: "caller" | "receiver", candidates: SignalIce[]) {
+    if (!candidates.length) return;
     const currentCall = activeCallRef.current;
     if (!currentCall) {
-      pendingLocalIceRef.current.push(candidate);
+      pendingLocalIceRef.current.push(...candidates);
       return;
     }
     const field = role === "caller" ? "callerIce" : "receiverIce";
@@ -1348,19 +1373,28 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       method: "PATCH",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ callId: currentCall.id, [field]: [candidate] })
+      body: JSON.stringify({ callId: currentCall.id, [field]: candidates })
     }).catch(() => undefined);
   }
 
   async function flushPendingIce(role: "caller" | "receiver") {
+    if (!activeCallRef.current || !pendingLocalIceRef.current.length) return;
     const candidates = pendingLocalIceRef.current;
-    if (!candidates.length) return;
     pendingLocalIceRef.current = [];
-    await Promise.all(candidates.map((candidate) => sendIceCandidate(role, candidate)));
+    await sendIceCandidates(role, candidates);
   }
 
-  function createPeer(role: "caller" | "receiver") {
-    const pc = new RTCPeerConnection({ iceServers, iceCandidatePoolSize: 10 });
+  function queueLocalIce(role: "caller" | "receiver", candidate: SignalIce) {
+    pendingLocalIceRef.current.push(candidate);
+    if (iceFlushTimerRef.current) return;
+    iceFlushTimerRef.current = window.setTimeout(() => {
+      iceFlushTimerRef.current = null;
+      void flushPendingIce(role);
+    }, 300);
+  }
+
+  function createPeer(role: "caller" | "receiver", currentIceServers: RTCIceServer[] = iceServers) {
+    const pc = new RTCPeerConnection({ iceServers: currentIceServers, iceCandidatePoolSize: 10 });
     const remote = new MediaStream();
     remoteStreamRef.current = remote;
     setRemoteStream(remote);
@@ -1372,9 +1406,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
         if (!remote.getTracks().some((item) => item.id === track.id)) remote.addTrack(track);
       }
       setRemoteStream(remote);
+      attachRemoteStream(remote);
       window.setTimeout(() => {
-        void remoteAudioRef.current?.play().catch(() => undefined);
-        void remoteVideoRef.current?.play().catch(() => undefined);
+        void unlockRemoteAudio();
       }, 120);
     };
 
@@ -1383,8 +1417,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       if (state === "connected") {
         setCallWorking(true);
         setCallNotice(role === "caller" ? "Собеседник подключился. Звук включён." : "Вы подключены к звонку. Звук включён.");
-        void remoteAudioRef.current?.play().catch(() => undefined);
-        void remoteVideoRef.current?.play().catch(() => undefined);
+        void unlockRemoteAudio();
       }
       if (["failed", "disconnected", "closed"].includes(state)) {
         if (state === "failed") setCallNotice("Звонок не смог установиться. Иногда нужен TURN-сервер или другая сеть.");
@@ -1394,8 +1427,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     pc.oniceconnectionstatechange = () => {
       if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
         setCallWorking(true);
-        void remoteAudioRef.current?.play().catch(() => undefined);
-        void remoteVideoRef.current?.play().catch(() => undefined);
+        void unlockRemoteAudio();
       }
     };
 
@@ -1405,7 +1437,11 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       const key = JSON.stringify(candidate);
       if (addedIceKeysRef.current.has(`local:${key}`)) return;
       addedIceKeysRef.current.add(`local:${key}`);
-      void sendIceCandidate(role, candidate);
+      queueLocalIce(role, candidate);
+    };
+
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === "complete") void flushPendingIce(role);
     };
 
     peerRef.current = pc;
@@ -1433,12 +1469,12 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     cleanupCallMedia();
 
     try {
-      void loadIceServers();
+      const iceConfig = await fetchIceServers();
       setCallNotice(kind === "VIDEO" ? "Создаю видеозвонок..." : "Создаю аудиозвонок...");
       const stream = await ensureLocalMedia(kind);
       void localVideoRef.current?.play().catch(() => undefined);
-      void remoteAudioRef.current?.play().catch(() => undefined);
-      const pc = createPeer("caller");
+      void unlockRemoteAudio();
+      const pc = createPeer("caller", iceConfig.iceServers);
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -1460,7 +1496,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       activeCallRef.current = data.call;
       setActiveCall(data.call);
       await flushPendingIce("caller");
-      setCallNotice(turnReady ? "Звоним… TURN включён, соединение должно проходить через разные сети стабильнее." : "Звоним… STUN включён. Для самых сложных сетей добавь TURN_URLS/TURN_USERNAME/TURN_CREDENTIAL в Vercel.");
+      setCallNotice(iceConfig.hasTurn ? "Звоним… TURN включён, соединение должно проходить через разные сети стабильнее." : "Звоним… STUN включён. Для самых сложных сетей добавь TURN_URLS/TURN_USERNAME/TURN_CREDENTIAL в Vercel.");
     } catch (error) {
       cleanupCallMedia();
       const message = error instanceof Error ? error.message : "Проверь разрешение микрофона/камеры.";
@@ -1480,10 +1516,11 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       activeCallRef.current = callToAnswer;
       cleanupCallMedia();
       activeCallRef.current = callToAnswer;
+      const iceConfig = await fetchIceServers();
       const stream = await ensureLocalMedia(callToAnswer.kind);
       void localVideoRef.current?.play().catch(() => undefined);
-      void remoteAudioRef.current?.play().catch(() => undefined);
-      const pc = createPeer("receiver");
+      void unlockRemoteAudio();
+      const pc = createPeer("receiver", iceConfig.iceServers);
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       if (!callToAnswer.offer?.sdp) {
@@ -1513,9 +1550,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       await flushPendingIce("receiver");
       await applyRemoteIce(data.call.callerIce);
       void localVideoRef.current?.play().catch(() => undefined);
-      void remoteAudioRef.current?.play().catch(() => undefined);
-      void remoteVideoRef.current?.play().catch(() => undefined);
-      setCallNotice("Подключаю звонок...");
+      void unlockRemoteAudio();
+      setCallNotice(iceConfig.hasTurn ? "Подключаю звонок через TURN..." : "Подключаю звонок...");
     } catch (error) {
       cleanupCallMedia();
       const message = error instanceof Error ? error.message : "Проверь разрешение микрофона/камеры.";
@@ -1607,6 +1643,41 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     }
   }
 
+  function attachRemoteStream(stream: MediaStream | null) {
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = stream;
+      remoteAudioRef.current.muted = false;
+      remoteAudioRef.current.volume = 1;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = stream;
+      remoteVideoRef.current.muted = false;
+      remoteVideoRef.current.volume = 1;
+    }
+  }
+
+  async function unlockRemoteAudio() {
+    const audio = remoteAudioRef.current;
+    const video = remoteVideoRef.current;
+    if (remoteStreamRef.current) attachRemoteStream(remoteStreamRef.current);
+    if (audio) {
+      audio.muted = false;
+      audio.volume = 1;
+    }
+    if (video) {
+      video.muted = false;
+      video.volume = 1;
+    }
+
+    try {
+      await audio?.play();
+      await video?.play();
+      setAudioNeedsTap(false);
+    } catch {
+      setAudioNeedsTap(true);
+    }
+  }
+
   async function applyAudioRoute(nextSpeakerOn: boolean) {
     const audio = remoteAudioRef.current as AudioOutputElement | null;
     if (!audio) return;
@@ -1616,8 +1687,10 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
     try {
       await audio.play();
+      setAudioNeedsTap(false);
     } catch {
-      // On iOS/Safari playback sometimes starts only after the user's tap.
+      // iOS/Safari/Chrome can block sound until the user taps a visible button.
+      setAudioNeedsTap(true);
     }
 
     if (typeof audio.setSinkId !== "function") {
@@ -2057,20 +2130,22 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                       {!mine ? (
                         message.sender?.avatarData ? <img src={message.sender.avatarData} alt="" className={`h-8 w-8 shrink-0 rounded-full object-cover ${previousSameSender ? "opacity-0" : ""}`} /> : <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white ${previousSameSender ? "opacity-0" : ""}`}>{avatarLabel(message.sender?.displayName || message.sender?.username)}</div>
                       ) : null}
-                      <div className="tg-message-shell relative max-w-[78%] sm:max-w-[62%]">
+                      <div className={`tg-message-shell relative max-w-[78%] sm:max-w-[62%] ${swipe ? "is-swiping" : ""}`}> 
+                        <div className={`tg-swipe-reply-backdrop ${swipe?.ready ? "is-ready" : ""}`} style={swipe ? { opacity: Math.min(Math.abs(swipe.dx) / 104, 1) } : undefined} aria-hidden="true" />
                         <div className={`tg-swipe-reply-icon ${swipe?.ready ? "is-ready" : ""}`} aria-hidden="true">
                           <Reply size={17} />
                         </div>
+                        <div className={`tg-swipe-reply-label ${swipe?.ready ? "is-ready" : ""}`} aria-hidden="true">Ответ</div>
                         {reactionBurst?.id === message.id ? <div className="tg-reaction-burst" aria-hidden="true">{reactionBurst.emoji}</div> : null}
                         <div
                           onPointerDown={(event) => startMessagePointer(event, message)}
                           onPointerMove={(event) => moveMessagePointer(event, message)}
                           onPointerUp={(event) => endMessagePointer(event, message)}
-                          onPointerCancel={() => { clearMessageGesture(); setSwipeState(null); }}
-                          onPointerLeave={() => { clearMessageGesture(); setSwipeState(null); }}
-                          onContextMenu={(event) => { event.preventDefault(); setMessageMenu(message); }}
+                          onPointerCancel={clearMessageInteraction}
+                          onPointerLeave={clearMessageInteraction}
+                          onContextMenu={(event) => { event.preventDefault(); clearMessageInteraction(); setMessageMenu(message); }}
                           style={swipe ? { transform: `translateX(${swipe.dx}px)`, transition: "none" } : undefined}
-                          className={`tg-bubble tg-bubble-animated max-w-full touch-pan-y text-[14px] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"} ${previousSameSender ? "tg-bubble-tight" : ""}`}
+                          className={`tg-bubble tg-bubble-animated max-w-full touch-pan-y text-[14px] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"} ${previousSameSender ? "tg-bubble-tight" : ""} ${pressedMessageId === message.id ? "is-holding" : ""} ${swipe?.ready ? "is-reply-ready" : ""}`}
                         >
                           {!mine && !previousSameSender ? <p className="tg-bubble-author mb-1 text-[11px] font-semibold">{message.sender?.displayName || message.sender?.username || "Pirogram"}</p> : null}
                           {message.replyTo ? (
@@ -2244,8 +2319,11 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       ) : null}
 
       {messageMenu ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-5 backdrop-blur-md" onClick={() => setMessageMenu(null)}>
+        <div className="tg-menu-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-5 backdrop-blur-md" onClick={() => setMessageMenu(null)}>
           <div className="tg-message-menu w-full max-w-[330px]" onClick={(event) => event.stopPropagation()}>
+            <div className={`tg-menu-preview-bubble mx-auto mb-3 max-w-[280px] rounded-3xl px-4 py-2.5 text-sm shadow-2xl ${messageMenu.senderId === currentUser.id ? "tg-bubble-mine" : "tg-bubble-theirs"}`}>
+              <p className="line-clamp-2 break-words">{replyPreview(messageMenu)}</p>
+            </div>
             <div className="tg-reaction-menu mx-auto mb-3 flex w-fit items-center gap-2 rounded-full px-2.5 py-2 shadow-2xl">
               {REACTION_EMOJIS.map((emoji) => {
                 const reacted = messageMenu.reactions?.some((reaction) => reaction.userId === currentUser.id && reaction.emoji === emoji);
@@ -2265,8 +2343,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
             <div className="tg-modal rounded-[1.7rem] p-2.5 shadow-2xl">
               <div className="px-3 pb-2 pt-2 text-center">
-                <p className="tg-title text-sm font-bold">Сообщение</p>
-                <p className="tg-muted mx-auto mt-1 line-clamp-2 max-w-[240px] text-xs">{replyPreview(messageMenu)}</p>
+                <p className="tg-title text-sm font-bold">Действия с сообщением</p>
               </div>
               <div className="grid gap-1">
                 <button onClick={() => { setReplyTo(messageMenu); setMessageMenu(null); }} className="tg-menu-action">
@@ -2314,6 +2391,11 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               <div>
                 <p className="tg-title text-lg font-bold">{activeCall.kind === "VIDEO" ? "Видеозвонок" : "Аудиозвонок"}</p>
                 <p className="tg-muted text-xs">{callWorking || isCallConnected ? `Соединение установлено · ${audioRouteStatus}` : callNotice || "Подключение..."}</p>
+                {audioNeedsTap ? (
+                  <button onClick={() => void unlockRemoteAudio()} className="mt-2 rounded-full bg-[#229ed9] px-4 py-2 text-xs font-semibold text-white">
+                    Включить звук
+                  </button>
+                ) : null}
               </div>
               <div className="flex gap-2">
                 <button onClick={toggleMute} title={callMuted ? "Включить микрофон" : "Выключить микрофон"} className={`grid h-11 w-11 place-items-center rounded-full ${callMuted ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-700"}`}><Mic size={18} /></button>
