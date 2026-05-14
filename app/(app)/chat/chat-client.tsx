@@ -10,6 +10,8 @@ import {
   Loader2,
   LogOut,
   Moon,
+  Pause,
+  Play,
   Mic,
   Paperclip,
   Pencil,
@@ -114,7 +116,7 @@ type MediaDraft = {
   data: string;
   mime: string;
   name: string;
-  type: "IMAGE" | "VIDEO";
+  type: "IMAGE" | "VIDEO" | "VOICE";
 };
 
 type AvatarEditorState = {
@@ -150,7 +152,7 @@ type AudioOutputElement = HTMLAudioElement & {
   setSinkId?: (sinkId: string) => Promise<void>;
 };
 
-const REACTION_EMOJIS = ["😘", "❤️‍🔥"] as const;
+const REACTION_EMOJIS = ["💋", "❤️‍🔥"] as const;
 type ReactionEmoji = typeof REACTION_EMOJIS[number];
 
 const MAX_UPLOAD_BYTES = 3.5 * 1024 * 1024;
@@ -186,8 +188,20 @@ function avatarLabel(name?: string | null) {
   return (name || "P").slice(0, 1).toUpperCase();
 }
 
+function isAudioMime(mime?: string | null) {
+  return Boolean(mime && mime.toLowerCase().startsWith("audio/"));
+}
+
+function formatVoiceDuration(totalSeconds: number) {
+  const safe = Math.max(0, Math.floor(totalSeconds || 0));
+  const minutes = Math.floor(safe / 60);
+  const seconds = safe % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 function chatPreview(message?: Omit<Message, "mediaData">) {
   if (!message) return "Нет сообщений";
+  if (isAudioMime(message.mediaMime)) return "🎤 Голосовое";
   if (message.type === "IMAGE") return "📷 Фото";
   if (message.type === "VIDEO") return "🎬 Видео";
   if (message.type === "CALL") return message.text || "Звонок";
@@ -196,6 +210,7 @@ function chatPreview(message?: Omit<Message, "mediaData">) {
 
 function replyPreview(message?: ReplyPreviewMessage | Message | null) {
   if (!message) return "Сообщение";
+  if (isAudioMime(message.mediaMime)) return "Голосовое";
   if (message.type === "IMAGE") return "Фото";
   if (message.type === "VIDEO") return "Видео";
   if (message.type === "CALL") return message.text || "Звонок";
@@ -224,7 +239,7 @@ function summarizeReactions(reactions: MessageReaction[] | undefined, currentUse
   }).filter((reaction) => reaction.count > 0);
 }
 
-async function fileToDataUrl(file: File) {
+async function fileToDataUrl(file: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
@@ -263,6 +278,63 @@ async function cropAvatarToSquare(editor: AvatarEditorState) {
   return canvas.toDataURL("image/jpeg", 0.9);
 }
 
+function VoiceNote({ src, name }: { src: string; name?: string | null }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const onTime = () => setProgress(audio.duration ? audio.currentTime / audio.duration : 0);
+    const onMeta = () => setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+    const onEnded = () => {
+      setPlaying(false);
+      setProgress(0);
+      audio.currentTime = 0;
+    };
+    audio.addEventListener("timeupdate", onTime);
+    audio.addEventListener("loadedmetadata", onMeta);
+    audio.addEventListener("ended", onEnded);
+    return () => {
+      audio.removeEventListener("timeupdate", onTime);
+      audio.removeEventListener("loadedmetadata", onMeta);
+      audio.removeEventListener("ended", onEnded);
+    };
+  }, [src]);
+
+  async function togglePlayback() {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      await audio.play().catch(() => undefined);
+      setPlaying(true);
+    } else {
+      audio.pause();
+      setPlaying(false);
+    }
+  }
+
+  return (
+    <div className="tg-voice-note" aria-label={name || "Голосовое сообщение"}>
+      <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={() => void togglePlayback()} className="tg-voice-play" aria-label={playing ? "Пауза" : "Воспроизвести"}>
+        {playing ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}
+      </button>
+      <div className="tg-voice-body">
+        <div className="tg-voice-wave" style={{ "--voice-progress": `${Math.round(progress * 100)}%` } as React.CSSProperties}>
+          {Array.from({ length: 28 }).map((_, index) => <span key={index} style={{ height: `${8 + ((index * 7) % 18)}px` }} />)}
+        </div>
+        <div className="tg-voice-caption">
+          <span>Голосовое</span>
+          <span>{formatVoiceDuration(duration)}</span>
+        </div>
+      </div>
+      <audio ref={audioRef} src={src} preload="metadata" className="hidden" />
+    </div>
+  );
+}
+
 export default function ChatClient({ currentUser }: { currentUser: User }) {
   const router = useRouter();
   const [profileUser, setProfileUser] = useState<User>(currentUser);
@@ -292,10 +364,12 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [inviteResults, setInviteResults] = useState<User[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [messageMenu, setMessageMenu] = useState<Message | null>(null);
-  const [quickReaction, setQuickReaction] = useState<ReactionEmoji>("😘");
+  const [quickReaction, setQuickReaction] = useState<ReactionEmoji>("💋");
   const [swipeState, setSwipeState] = useState<{ id: string; dx: number; ready: boolean } | null>(null);
   const [reactionBurst, setReactionBurst] = useState<{ id: string; emoji: ReactionEmoji } | null>(null);
   const [sending, setSending] = useState(false);
+  const [recordingVoice, setRecordingVoice] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [loadingChats, setLoadingChats] = useState(true);
   const [mobileListOpen, setMobileListOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<"chats" | "calls" | "settings">("chats");
@@ -350,6 +424,12 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const lastTapRef = useRef<{ id: string; at: number } | null>(null);
+  const voiceRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceStreamRef = useRef<MediaStream | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
+  const voiceTimerRef = useRef<number | null>(null);
+  const voiceStartedAtRef = useRef(0);
+  const voiceCancelledRef = useRef(false);
 
   const activeChat = useMemo(() => chats.find((chat) => chat.id === activeChatId), [chats, activeChatId]);
   const privateChatUser = useMemo(() => activeChat?.type === "PRIVATE" ? activeChat.members.find((member) => member.id !== currentUser.id) ?? null : null, [activeChat, currentUser.id]);
@@ -427,6 +507,14 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     void refreshMediaPermissionStatus();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (voiceTimerRef.current) window.clearInterval(voiceTimerRef.current);
+      voiceRecorderRef.current?.stream.getTracks().forEach((track) => track.stop());
+      voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
   }, []);
 
   useEffect(() => {
@@ -939,24 +1027,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     setMobileListOpen(true);
   }
 
-  async function sendMessage(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const cleanText = text.trim();
-    if ((!cleanText && !mediaDraft) || !activeChatId || sending) return;
+  async function postMessage(payload: { chatId: string; text?: string; mediaData?: string; mediaMime?: string; mediaName?: string; replyToId?: string }, restoreText = "") {
     setSending(true);
-
-    const payload = {
-      chatId: activeChatId,
-      text: cleanText,
-      mediaData: mediaDraft?.data,
-      mediaMime: mediaDraft?.mime,
-      mediaName: mediaDraft?.name,
-      replyToId: replyTo?.id
-    };
-
-    setText("");
-    setMediaDraft(null);
-
     const response = await fetch("/api/messages", {
       method: "POST",
       credentials: "include",
@@ -971,10 +1043,113 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       setMessages((current) => [...current, data.message]);
       setReplyTo(null);
       void loadChats();
-    } else {
-      setText(cleanText);
-      alert(data?.error ?? "Не удалось отправить сообщение.");
+      return true;
     }
+
+    if (restoreText) setText(restoreText);
+    alert(data?.error ?? "Не удалось отправить сообщение.");
+    return false;
+  }
+
+  async function sendMessage(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanText = text.trim();
+    if ((!cleanText && !mediaDraft) || !activeChatId || sending || recordingVoice) return;
+
+    const payload = {
+      chatId: activeChatId,
+      text: cleanText,
+      mediaData: mediaDraft?.data,
+      mediaMime: mediaDraft?.mime,
+      mediaName: mediaDraft?.name,
+      replyToId: replyTo?.id
+    };
+
+    setText("");
+    setMediaDraft(null);
+    await postMessage(payload, cleanText);
+  }
+
+  function preferredVoiceMimeType() {
+    if (typeof MediaRecorder === "undefined") return "";
+    const candidates = ["audio/webm", "audio/mp4", "audio/ogg;codecs=opus", "audio/webm;codecs=opus"];
+    return candidates.find((mime) => MediaRecorder.isTypeSupported(mime)) || "";
+  }
+
+  async function startVoiceRecording() {
+    if (!activeChatId || sending || recordingVoice) return;
+    if (!("mediaDevices" in navigator) || typeof MediaRecorder === "undefined") {
+      alert("Браузер не поддерживает голосовые сообщения.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = preferredVoiceMimeType();
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      voiceRecorderRef.current = recorder;
+      voiceStreamRef.current = stream;
+      voiceChunksRef.current = [];
+      voiceCancelledRef.current = false;
+      voiceStartedAtRef.current = Date.now();
+      setRecordingSeconds(0);
+      setRecordingVoice(true);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) voiceChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const chunks = [...voiceChunksRef.current];
+        const elapsed = Math.max(1, Math.round((Date.now() - voiceStartedAtRef.current) / 1000));
+        const cancelled = voiceCancelledRef.current;
+        voiceChunksRef.current = [];
+        if (voiceTimerRef.current) window.clearInterval(voiceTimerRef.current);
+        voiceTimerRef.current = null;
+        setRecordingVoice(false);
+        setRecordingSeconds(0);
+        stream.getTracks().forEach((track) => track.stop());
+        voiceStreamRef.current = null;
+        voiceRecorderRef.current = null;
+        if (cancelled || !chunks.length || !activeChatId) return;
+        const type = recorder.mimeType || chunks[0]?.type || "audio/webm";
+        const blob = new Blob(chunks, { type });
+        if (blob.size > MAX_UPLOAD_BYTES) {
+          alert("Голосовое слишком большое. Запиши короче.");
+          return;
+        }
+        void fileToDataUrl(blob).then((data) => postMessage({
+          chatId: activeChatId,
+          text: "",
+          mediaData: data,
+          mediaMime: type,
+          mediaName: `voice-${Date.now()}-${formatVoiceDuration(elapsed)}.webm`,
+          replyToId: replyTo?.id
+        })).catch(() => alert("Не удалось отправить голосовое."));
+      };
+      recorder.start(250);
+      voiceTimerRef.current = window.setInterval(() => setRecordingSeconds(Math.round((Date.now() - voiceStartedAtRef.current) / 1000)), 250);
+    } catch {
+      setRecordingVoice(false);
+      alert("Разреши доступ к микрофону, чтобы записывать голосовые.");
+    }
+  }
+
+  function stopVoiceRecording() {
+    if (!voiceRecorderRef.current || voiceRecorderRef.current.state === "inactive") return;
+    voiceRecorderRef.current.stop();
+  }
+
+  function cancelVoiceRecording() {
+    voiceCancelledRef.current = true;
+    if (voiceRecorderRef.current && voiceRecorderRef.current.state !== "inactive") {
+      voiceRecorderRef.current.stop();
+      return;
+    }
+    if (voiceTimerRef.current) window.clearInterval(voiceTimerRef.current);
+    voiceTimerRef.current = null;
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop());
+    voiceStreamRef.current = null;
+    setRecordingVoice(false);
+    setRecordingSeconds(0);
   }
 
   async function onFileChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -2209,7 +2384,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                           ) : null}
                           {message.mediaData && message.type === "IMAGE" ? <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={() => setLightboxMedia({ data: message.mediaData || "", mime: message.mediaMime, name: message.mediaName, type: "IMAGE" })} className="mb-2 block overflow-hidden rounded-[14px] text-left"><img src={message.mediaData} alt={message.mediaName || "Фото"} className="tg-bubble-media max-h-80 w-full object-cover" /></button> : null}
                           {message.mediaData && message.type === "VIDEO" ? <video src={message.mediaData} controls playsInline className="tg-bubble-media mb-2 max-h-80 w-full" /> : null}
-                          {message.text ? <p className="whitespace-pre-wrap break-words leading-6">{message.text}</p> : null}
+                          {message.mediaData && isAudioMime(message.mediaMime) ? <VoiceNote src={message.mediaData} name={message.mediaName} /> : null}
+                          {message.text && !isAudioMime(message.mediaMime) ? <p className="whitespace-pre-wrap break-words leading-6">{message.text}</p> : null}
                           <div className="tg-bubble-meta ml-8 mt-1 flex items-center justify-end gap-1 text-[11px]">
                             <span>{timeLabel(message.createdAt)}</span>
                             {mine ? (message.readByOthers ? <CheckCheck size={15} strokeWidth={2.4} /> : <Check size={15} strokeWidth={2.4} />) : null}
@@ -2268,13 +2444,37 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
           <form onSubmit={sendMessage} className="tg-compose tg-compose-compact border-t border-slate-200 px-2 py-1 pb-[max(4px,env(safe-area-inset-bottom))]">
             <div className="tg-compose-inner mx-auto flex max-w-4xl items-end gap-1.5">
               <input ref={fileRef} type="file" accept="image/*,video/*" onChange={onFileChange} className="hidden" />
-              <button type="button" onClick={() => fileRef.current?.click()} className="tg-compose-btn grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 active:bg-slate-100 tg-icon-btn" title="Фото или видео">
-                <Paperclip size={20} />
-              </button>
-              <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Message" className="tg-input-darkfix tg-compose-textarea max-h-24 min-h-8 flex-1 resize-none rounded-[1rem] px-3 py-1.5 text-[14px] leading-5 outline-none focus:ring-2 focus:ring-[#229ed9]/20" rows={1} />
-              <button disabled={sending || (!text.trim() && !mediaDraft) || !activeChatId} className="tg-send-btn grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#229ed9] text-white shadow-lg shadow-[#229ed9]/20 disabled:bg-slate-300" aria-label="Отправить">
-                {sending ? <Loader2 className="animate-spin" size={19} /> : <Send size={17} />}
-              </button>
+              {recordingVoice ? (
+                <>
+                  <button type="button" onClick={cancelVoiceRecording} className="tg-compose-btn grid h-8 w-8 shrink-0 place-items-center rounded-full text-red-500 active:bg-red-500/10 tg-icon-btn" title="Отменить голосовое">
+                    <X size={19} />
+                  </button>
+                  <div className="tg-voice-recording flex min-h-8 flex-1 items-center gap-2 rounded-[1rem] px-3 py-1.5 text-[14px] font-semibold">
+                    <span className="tg-record-dot" />
+                    <span>Запись {formatVoiceDuration(recordingSeconds)}</span>
+                    <span className="ml-auto text-xs font-medium opacity-70">нажми отправить</span>
+                  </div>
+                  <button type="button" onClick={stopVoiceRecording} className="tg-send-btn grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#229ed9] text-white shadow-lg shadow-[#229ed9]/20" aria-label="Отправить голосовое">
+                    <Send size={17} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button type="button" onClick={() => fileRef.current?.click()} className="tg-compose-btn grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-400 active:bg-slate-100 tg-icon-btn" title="Фото или видео">
+                    <Paperclip size={20} />
+                  </button>
+                  <textarea value={text} onChange={(event) => setText(event.target.value)} placeholder="Message" className="tg-input-darkfix tg-compose-textarea max-h-24 min-h-8 flex-1 resize-none rounded-[1rem] px-3 py-1.5 text-[14px] leading-5 outline-none focus:ring-2 focus:ring-[#229ed9]/20" rows={1} />
+                  {text.trim() || mediaDraft ? (
+                    <button disabled={sending || !activeChatId} className="tg-send-btn grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#229ed9] text-white shadow-lg shadow-[#229ed9]/20 disabled:bg-slate-300" aria-label="Отправить">
+                      {sending ? <Loader2 className="animate-spin" size={19} /> : <Send size={17} />}
+                    </button>
+                  ) : (
+                    <button type="button" disabled={sending || !activeChatId} onClick={() => void startVoiceRecording()} className="tg-send-btn grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#229ed9] text-white shadow-lg shadow-[#229ed9]/20 disabled:bg-slate-300" aria-label="Записать голосовое">
+                      <Mic size={18} />
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </form>
         </section>

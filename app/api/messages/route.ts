@@ -174,9 +174,10 @@ export async function POST(request: Request) {
 
   await db.chat.update({ where: { id: parsed.data.chatId }, data: { updatedAt: new Date() } });
 
+  const isVoice = parsed.data.mediaMime?.toLowerCase().startsWith("audio/");
   await notifyChatMembers(parsed.data.chatId, user.id, {
     title: user.displayName || user.username,
-    body: cleanText || (type === "IMAGE" ? "Отправил фото" : type === "VIDEO" ? "Отправил видео" : "Отправил файл"),
+    body: cleanText || (isVoice ? "Отправил голосовое" : type === "IMAGE" ? "Отправил фото" : type === "VIDEO" ? "Отправил видео" : "Отправил файл"),
     url: "/chat"
   }).catch(() => undefined);
 

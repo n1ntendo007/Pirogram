@@ -12,7 +12,7 @@ type RouteContext = {
 };
 
 const reactionSchema = z.object({
-  emoji: z.enum(["😘", "❤️‍🔥"])
+  emoji: z.enum(["💋", "❤️‍🔥"])
 });
 
 async function assertMessageAccess(messageId: string, userId: string) {
@@ -48,7 +48,7 @@ export async function PUT(request: Request, context: RouteContext) {
   const { messageId } = await context.params;
   const body = await request.json().catch(() => null);
   const parsed = reactionSchema.safeParse(body);
-  if (!parsed.success) return jsonError("Можно выбрать только 😘 или ❤️‍🔥.", 400);
+  if (!parsed.success) return jsonError("Можно выбрать только 💋 или ❤️‍🔥.", 400);
 
   const access = await assertMessageAccess(messageId, user.id);
   if (access.error) return access.error;
