@@ -1,4 +1,4 @@
-const CACHE_NAME = "pirogram-shell-v21";
+const CACHE_NAME = "pirogram-shell-v22";
 const SHELL = ["/", "/manifest.webmanifest", "/icons/icon-192.png"];
 
 self.addEventListener("install", (event) => {

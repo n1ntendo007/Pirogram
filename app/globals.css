@@ -1046,3 +1046,86 @@ html[data-theme="dark"] .tg-menu-preview-bubble {
     animation: none !important;
   }
 }
+
+
+/* v22: real bidirectional swipe-to-reply + smoother long-press menu */
+.tg-message-shell {
+  overflow: visible;
+}
+
+.tg-bubble-animated {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: pan-y;
+}
+
+.tg-message-shell.is-swiping .tg-bubble-animated {
+  filter: saturate(1.04);
+  will-change: transform;
+}
+
+.tg-swipe-reply-backdrop.is-swiping-right {
+  inset: 4px auto 4px 0;
+  left: 0;
+  right: auto;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tg-accent) 32%, transparent) 0%, color-mix(in srgb, var(--tg-accent) 20%, transparent) 45%, transparent 100%);
+  transform-origin: left center;
+}
+
+.tg-swipe-reply-backdrop.is-swiping-left {
+  inset: 4px 0 4px auto;
+  left: auto;
+  right: 0;
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--tg-accent) 20%, transparent) 55%, color-mix(in srgb, var(--tg-accent) 32%, transparent) 100%);
+  transform-origin: right center;
+}
+
+.tg-swipe-reply-icon.is-swiping-right {
+  left: 10px;
+  right: auto;
+  transform: translateY(-50%) scale(.72) rotate(16deg);
+}
+
+.tg-swipe-reply-icon.is-swiping-left {
+  right: 10px;
+  left: auto;
+  transform: translateY(-50%) scale(.72) rotate(-16deg);
+}
+
+.tg-swipe-reply-icon.is-swiping-right.is-ready,
+.tg-swipe-reply-icon.is-swiping-left.is-ready {
+  opacity: 1;
+  transform: translateY(-50%) scale(1) rotate(0deg);
+}
+
+.tg-swipe-reply-label.is-swiping-right {
+  left: 52px;
+  right: auto;
+  transform: translate(-10px, -50%) scale(.95);
+}
+
+.tg-swipe-reply-label.is-swiping-left {
+  right: 52px;
+  left: auto;
+  transform: translate(10px, -50%) scale(.95);
+}
+
+.tg-swipe-reply-label.is-swiping-right.is-ready,
+.tg-swipe-reply-label.is-swiping-left.is-ready {
+  opacity: 1;
+  transform: translate(0, -50%) scale(1);
+}
+
+.tg-message-menu {
+  animation: tgMessageMenuFloatIn .18s cubic-bezier(.2,.85,.24,1.12) both;
+}
+
+@keyframes tgMessageMenuFloatIn {
+  from { opacity: 0; transform: translateY(10px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-message-menu {
+    animation: none !important;
+  }
+}

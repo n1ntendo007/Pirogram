@@ -285,7 +285,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [messageMenu, setMessageMenu] = useState<Message | null>(null);
   const [pressedMessageId, setPressedMessageId] = useState<string | null>(null);
   const [quickReaction, setQuickReaction] = useState<ReactionEmoji>("😘");
-  const [swipeState, setSwipeState] = useState<{ id: string; dx: number; ready: boolean } | null>(null);
+  const [swipeState, setSwipeState] = useState<{ id: string; dx: number; ready: boolean; direction: "left" | "right" } | null>(null);
   const [reactionBurst, setReactionBurst] = useState<{ id: string; emoji: ReactionEmoji } | null>(null);
   const [sending, setSending] = useState(false);
   const [loadingChats, setLoadingChats] = useState(true);
@@ -334,7 +334,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const addedIceKeysRef = useRef<Set<string>>(new Set());
   const pendingLocalIceRef = useRef<SignalIce[]>([]);
   const iceFlushTimerRef = useRef<number | null>(null);
-  const messagePointerStartRef = useRef<{ x: number; y: number; id: string } | null>(null);
+  const messagePointerStartRef = useRef<{ x: number; y: number; id: string; swiping: boolean } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const lastTapRef = useRef<{ id: string; at: number } | null>(null);
@@ -1090,6 +1090,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
   function clearMessageInteraction() {
     clearMessageGesture();
+    messagePointerStartRef.current = null;
+    longPressTriggeredRef.current = false;
     setPressedMessageId(null);
     setSwipeState(null);
   }
@@ -1100,42 +1102,57 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   }
 
   function startMessagePointer(event: React.PointerEvent, message: Message) {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
       // Some browsers do not allow pointer capture on every element.
     }
-    messagePointerStartRef.current = { x: event.clientX, y: event.clientY, id: message.id };
+    messagePointerStartRef.current = { x: event.clientX, y: event.clientY, id: message.id, swiping: false };
     longPressTriggeredRef.current = false;
     setPressedMessageId(message.id);
     setSwipeState(null);
     clearMessageGesture();
     longPressTimerRef.current = window.setTimeout(() => {
+      const start = messagePointerStartRef.current;
+      if (!start || start.id !== message.id || start.swiping) return;
       longPressTriggeredRef.current = true;
       setPressedMessageId(null);
       setSwipeState(null);
       setMessageMenu(message);
       if (navigator.vibrate) navigator.vibrate([20, 30, 20]);
-    }, 460);
+    }, 420);
   }
 
   function moveMessagePointer(event: React.PointerEvent, message: Message) {
     const start = messagePointerStartRef.current;
     if (!start || start.id !== message.id || longPressTriggeredRef.current) return;
+
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
-    if (Math.abs(dy) > 54) {
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+
+    if (absY > 24 && absY > absX * 1.15) {
+      clearMessageGesture();
+      start.swiping = false;
       setPressedMessageId(null);
       setSwipeState(null);
       return;
     }
-    if (dx < -8) {
+
+    if (absX > 7 && absX > absY * 1.15) {
       if (event.cancelable) event.preventDefault();
-      setPressedMessageId(null);
       clearMessageGesture();
-      const clamped = Math.max(dx, -104);
-      setSwipeState({ id: message.id, dx: clamped, ready: clamped < -50 });
-    } else if (swipeState?.id === message.id) {
+      start.swiping = true;
+      setPressedMessageId(null);
+
+      const direction = dx > 0 ? "right" : "left";
+      const sign = dx > 0 ? 1 : -1;
+      const maxSwipe = 112;
+      const clamped = sign * Math.min(absX, maxSwipe);
+      setSwipeState({ id: message.id, dx: clamped, ready: Math.abs(clamped) >= 54, direction });
+    } else if (absX < 5 && swipeState?.id === message.id) {
       setSwipeState(null);
     }
   }
@@ -1162,16 +1179,21 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       setSwipeState(null);
       return;
     }
+
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
-    const wasSwipe = dx < -50 && Math.abs(dy) < 42;
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    const wasSwipe = absX >= 54 && absY < 48;
+
     if (wasSwipe) {
       setReplyTo(message);
       if (navigator.vibrate) navigator.vibrate([12, 18, 12]);
-    } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
+    } else if (!start.swiping && absX < 10 && absY < 10) {
       handleMessageTap(message);
     }
-    window.setTimeout(() => setSwipeState((current) => current?.id === message.id ? null : current), 130);
+
+    window.setTimeout(() => setSwipeState((current) => current?.id === message.id ? null : current), 120);
   }
 
   function applyMessageReactions(messageId: string, reactions: MessageReaction[]) {
@@ -2118,6 +2140,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                 const showDay = !prev || dayLabel(prev.createdAt) !== dayLabel(message.createdAt);
                 const previousSameSender = !showDay && prev?.senderId === message.senderId;
                 const swipe = swipeState?.id === message.id ? swipeState : null;
+                const swipeDirectionClass = swipe?.direction === "right" ? "is-swiping-right" : swipe?.direction === "left" ? "is-swiping-left" : "";
                 const reactionSummary = summarizeReactions(message.reactions, currentUser.id);
                 return (
                   <div key={message.id} className="tg-message-row" style={{ animationDelay: `${Math.min(index * 16, 160)}ms` }}>
@@ -2130,19 +2153,18 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                       {!mine ? (
                         message.sender?.avatarData ? <img src={message.sender.avatarData} alt="" className={`h-8 w-8 shrink-0 rounded-full object-cover ${previousSameSender ? "opacity-0" : ""}`} /> : <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white ${previousSameSender ? "opacity-0" : ""}`}>{avatarLabel(message.sender?.displayName || message.sender?.username)}</div>
                       ) : null}
-                      <div className={`tg-message-shell relative max-w-[78%] sm:max-w-[62%] ${swipe ? "is-swiping" : ""}`}> 
-                        <div className={`tg-swipe-reply-backdrop ${swipe?.ready ? "is-ready" : ""}`} style={swipe ? { opacity: Math.min(Math.abs(swipe.dx) / 104, 1) } : undefined} aria-hidden="true" />
-                        <div className={`tg-swipe-reply-icon ${swipe?.ready ? "is-ready" : ""}`} aria-hidden="true">
+                      <div className={`tg-message-shell relative max-w-[78%] sm:max-w-[62%] ${swipe ? `is-swiping ${swipeDirectionClass}` : ""}`}> 
+                        <div className={`tg-swipe-reply-backdrop ${swipeDirectionClass} ${swipe?.ready ? "is-ready" : ""}`} style={swipe ? { opacity: Math.min(Math.abs(swipe.dx) / 96, 1) } : undefined} aria-hidden="true" />
+                        <div className={`tg-swipe-reply-icon ${swipeDirectionClass} ${swipe?.ready ? "is-ready" : ""}`} aria-hidden="true">
                           <Reply size={17} />
                         </div>
-                        <div className={`tg-swipe-reply-label ${swipe?.ready ? "is-ready" : ""}`} aria-hidden="true">Ответ</div>
+                        <div className={`tg-swipe-reply-label ${swipeDirectionClass} ${swipe?.ready ? "is-ready" : ""}`} aria-hidden="true">Ответ</div>
                         {reactionBurst?.id === message.id ? <div className="tg-reaction-burst" aria-hidden="true">{reactionBurst.emoji}</div> : null}
                         <div
                           onPointerDown={(event) => startMessagePointer(event, message)}
                           onPointerMove={(event) => moveMessagePointer(event, message)}
                           onPointerUp={(event) => endMessagePointer(event, message)}
                           onPointerCancel={clearMessageInteraction}
-                          onPointerLeave={clearMessageInteraction}
                           onContextMenu={(event) => { event.preventDefault(); clearMessageInteraction(); setMessageMenu(message); }}
                           style={swipe ? { transform: `translateX(${swipe.dx}px)`, transition: "none" } : undefined}
                           className={`tg-bubble tg-bubble-animated max-w-full touch-pan-y text-[14px] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"} ${previousSameSender ? "tg-bubble-tight" : ""} ${pressedMessageId === message.id ? "is-holding" : ""} ${swipe?.ready ? "is-reply-ready" : ""}`}
