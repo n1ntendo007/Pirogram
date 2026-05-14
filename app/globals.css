@@ -1000,3 +1000,43 @@ html[data-theme="dark"] .text-slate-300 {
 html[data-theme="dark"] .bg-slate-200 {
   background-color: rgba(255,255,255,.18) !important;
 }
+
+/* v22: Telegram-like settings pages, profile sheet and media lightbox */
+.tg-settings-row {
+  background: transparent !important;
+  color: var(--tg-search-text) !important;
+  transition: background .16s ease, transform .16s ease, opacity .16s ease;
+}
+
+.tg-settings-row:hover,
+.tg-settings-row:active {
+  background: color-mix(in srgb, var(--tg-accent) 7%, transparent) !important;
+}
+
+.tg-profile-sheet {
+  animation: tgSheetIn 0.24s cubic-bezier(.22,1,.36,1) both;
+}
+
+html[data-theme="dark"] .tg-profile-sheet {
+  background: #202c33 !important;
+  border-color: rgba(255,255,255,.08) !important;
+  color: #e9edef !important;
+}
+
+html[data-theme="dark"] .tg-settings-row {
+  color: var(--tg-search-text) !important;
+}
+
+html[data-theme="dark"] .tg-settings-row .text-red-500 {
+  color: #ff5d6c !important;
+}
+
+html[data-theme="dark"] .border-dashed {
+  border-color: rgba(255,255,255,.14) !important;
+}
+
+.tg-bubble button.tg-bubble-author {
+  background: transparent !important;
+  padding: 0;
+}
+

@@ -125,6 +125,15 @@ type AvatarEditorState = {
   offsetY: number;
 };
 
+type SettingsPage = "main" | "profile" | "permissions" | "reactions" | "appearance" | "admin";
+
+type LightboxMedia = {
+  data: string;
+  mime: string | null;
+  name: string | null;
+  type: "IMAGE" | "VIDEO";
+};
+
 type SignalDescription = {
   type: RTCSdpType;
   sdp: string;
@@ -290,6 +299,12 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [loadingChats, setLoadingChats] = useState(true);
   const [mobileListOpen, setMobileListOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<"chats" | "calls" | "settings">("chats");
+  const [settingsPage, setSettingsPage] = useState<SettingsPage>("main");
+  const [profileNameDraft, setProfileNameDraft] = useState(currentUser.displayName);
+  const [profileUsernameDraft, setProfileUsernameDraft] = useState(currentUser.username);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [lightboxMedia, setLightboxMedia] = useState<LightboxMedia | null>(null);
+  const [profileSheetUser, setProfileSheetUser] = useState<User | null>(null);
   const [editingChats, setEditingChats] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [activeCall, setActiveCall] = useState<CallSession | null>(null);
@@ -337,6 +352,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const lastTapRef = useRef<{ id: string; at: number } | null>(null);
 
   const activeChat = useMemo(() => chats.find((chat) => chat.id === activeChatId), [chats, activeChatId]);
+  const privateChatUser = useMemo(() => activeChat?.type === "PRIVATE" ? activeChat.members.find((member) => member.id !== currentUser.id) ?? null : null, [activeChat, currentUser.id]);
+  const activeChatMedia = useMemo(() => messages.filter((message) => (message.type === "IMAGE" || message.type === "VIDEO") && message.mediaData), [messages]);
+  const profileUserMedia = useMemo(() => profileSheetUser ? activeChatMedia.filter((message) => message.senderId === profileSheetUser.id || activeChat?.type === "PRIVATE") : [], [activeChat?.type, activeChatMedia, profileSheetUser]);
   const lastMessageDate = messages[messages.length - 1]?.createdAt;
   const isIncomingRinging = Boolean(activeCall && activeCall.callerId !== currentUser.id && activeCall.status === "RINGING");
   const isCallConnected = Boolean(activeCall && activeCall.status === "ACCEPTED");
@@ -533,7 +551,13 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     const response = await fetch("/api/me", { credentials: "include" }).catch(() => null);
     const data = response ? await response.json().catch(() => null) : null;
     if (!response?.ok || !data) return;
-    if (data.user) setProfileUser((current) => ({ ...current, ...data.user, isAdmin: data.isAdmin, maintenanceMode: data.maintenanceMode }));
+    if (data.user) {
+      setProfileUser((current) => ({ ...current, ...data.user, isAdmin: data.isAdmin, maintenanceMode: data.maintenanceMode }));
+      if (!profileBusy) {
+        setProfileNameDraft(data.user.displayName ?? "");
+        setProfileUsernameDraft(data.user.username ?? "");
+      }
+    }
     setMaintenanceClosed(Boolean(data.maintenanceMode));
     if (!options?.silent && data.isAdmin) void loadAdminAliases();
   }
@@ -672,6 +696,44 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     } catch (error) {
       alert(error instanceof Error ? error.message : "Не удалось обработать фото.");
     }
+  }
+
+  function openUserProfile(user?: User | null) {
+    if (!user) return;
+    setProfileSheetUser(user);
+  }
+
+  async function saveMyProfile() {
+    if (profileBusy) return;
+    const displayName = profileNameDraft.trim();
+    const username = profileUsernameDraft.trim().replace(/^@+/, "").toLowerCase();
+    if (!displayName) {
+      alert("Введи имя профиля.");
+      return;
+    }
+    if (!username) {
+      alert("Введи @username.");
+      return;
+    }
+    setProfileBusy(true);
+    const response = await fetch("/api/me", {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ displayName, username })
+    });
+    const data = await response.json().catch(() => null);
+    setProfileBusy(false);
+    if (!response.ok) {
+      alert(data?.error ?? "Не удалось сохранить профиль.");
+      return;
+    }
+    setProfileUser((current) => ({ ...current, ...data.user }));
+    setProfileNameDraft(data.user.displayName ?? displayName);
+    setProfileUsernameDraft(data.user.username ?? username);
+    setProfileSheetUser((current) => current?.id === data.user.id ? { ...current, ...data.user } : current);
+    void loadChats({ silent: true });
+    setSettingsPage("main");
   }
 
   function addSelectedGroupUser(user: User) {
@@ -1699,7 +1761,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                     <button type="button" onClick={() => setGroupCreatorOpen((value) => !value)} className="tg-icon-btn grid h-9 w-9 place-items-center rounded-full active:bg-slate-100" aria-label="Создать общий чат">
                       <Plus size={20} />
                     </button>
-                    <button type="button" onClick={() => { setActiveTab("settings"); setMobileListOpen(true); }} className="tg-icon-btn grid h-9 w-9 place-items-center rounded-full active:bg-slate-100" aria-label="Настройки">
+                    <button type="button" onClick={() => { setActiveTab("settings"); setSettingsPage("main"); setMobileListOpen(true); }} className="tg-icon-btn grid h-9 w-9 place-items-center rounded-full active:bg-slate-100" aria-label="Настройки">
                       <Smartphone size={19} />
                     </button>
                   </div>
@@ -1764,8 +1826,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               </>
             ) : activeTab === "settings" ? (
               <div className="flex h-11 items-center justify-between">
-                <button type="button" onClick={() => setActiveTab("chats")} className="rounded-full px-1 text-[15px] font-medium text-[#229ed9] active:opacity-60">Chats</button>
-                <h1 className="tg-title text-[18px] font-bold tracking-[-0.02em]">Settings</h1>
+                <button type="button" onClick={() => settingsPage === "main" ? setActiveTab("chats") : setSettingsPage("main")} className="rounded-full px-1 text-[15px] font-medium text-[#229ed9] active:opacity-60">{settingsPage === "main" ? "Chats" : "Назад"}</button>
+                <h1 className="tg-title text-[18px] font-bold tracking-[-0.02em]">{settingsPage === "main" ? "Settings" : settingsPage === "profile" ? "Профиль" : settingsPage === "permissions" ? "Разрешения" : settingsPage === "reactions" ? "Реакции" : settingsPage === "appearance" ? "Оформление" : "Админ"}</h1>
                 <span className="w-12" />
               </div>
             ) : (
@@ -1832,29 +1894,165 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
             </div>
           ) : activeTab === "settings" ? (
             <div className="tg-settings no-scrollbar flex-1 overflow-y-auto p-4">
-              <div className="tg-card mb-4 rounded-3xl p-4 shadow-sm">
-                <div className="flex items-center gap-4">
-                  <button type="button" onClick={() => profileAvatarRef.current?.click()} className="group relative shrink-0">
-                    {profileUser.avatarData ? <img src={profileUser.avatarData} alt="" className="h-16 w-16 rounded-full object-cover" /> : <div className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-2xl font-bold text-white">{avatarLabel(profileUser.displayName)}</div>}
-                    <span className="absolute inset-0 grid place-items-center rounded-full bg-black/35 text-white opacity-0 transition group-hover:opacity-100"><Camera size={20} /></span>
-                  </button>
-                  <input ref={profileAvatarRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void openAvatarEditor(file, "user"); }} />
-                  <div className="min-w-0">
-                    <p className="truncate text-xl font-bold text-slate-950">{profileUser.displayName}</p>
-                    <p className="truncate text-sm text-[#229ed9]">@{profileUser.username}</p>
-                    {profileUser.login ? <p className="tg-muted truncate text-xs">Логин: {profileUser.login}</p> : null}
-                    <p className="tg-muted mt-1 text-xs">Нажми на аватарку, чтобы обрезать фото в круг.</p>
+              {settingsPage === "main" ? (
+                <>
+                  <div className="tg-card mb-4 rounded-3xl p-4 shadow-sm">
+                    <div className="flex items-center gap-4">
+                      <button type="button" onClick={() => profileAvatarRef.current?.click()} className="group relative shrink-0">
+                        {profileUser.avatarData ? <img src={profileUser.avatarData} alt="" className="h-16 w-16 rounded-full object-cover" /> : <div className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-2xl font-bold text-white">{avatarLabel(profileUser.displayName)}</div>}
+                        <span className="absolute inset-0 grid place-items-center rounded-full bg-black/35 text-white opacity-0 transition group-hover:opacity-100"><Camera size={20} /></span>
+                      </button>
+                      <input ref={profileAvatarRef} type="file" accept="image/*" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void openAvatarEditor(file, "user"); }} />
+                      <button type="button" onClick={() => setSettingsPage("profile")} className="min-w-0 flex-1 text-left active:opacity-70">
+                        <p className="truncate text-xl font-bold text-slate-950">{profileUser.displayName}</p>
+                        <p className="truncate text-sm text-[#229ed9]">@{profileUser.username}</p>
+                        {profileUser.login ? <p className="tg-muted truncate text-xs">Логин: {profileUser.login}</p> : null}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
+                    <button type="button" onClick={() => setSettingsPage("profile")} className="tg-settings-row flex w-full items-center justify-between px-4 py-3 text-left">
+                      <span className="inline-flex min-w-0 items-center gap-3 text-[15px] font-semibold"><UserRound size={18} className="text-[#229ed9]" />Профиль</span>
+                      <span className="text-xl leading-none text-slate-400">›</span>
+                    </button>
+                    <button type="button" onClick={() => setSettingsPage("permissions")} className="tg-settings-row flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left">
+                      <span className="inline-flex min-w-0 items-center gap-3 text-[15px] font-semibold"><Bell size={18} className="text-[#229ed9]" />Разрешения</span>
+                      <span className="text-xl leading-none text-slate-400">›</span>
+                    </button>
+                    <button type="button" onClick={() => setSettingsPage("reactions")} className="tg-settings-row flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left">
+                      <span className="inline-flex min-w-0 items-center gap-3 text-[15px] font-semibold"><SmilePlus size={18} className="text-[#229ed9]" />Реакции</span>
+                      <span className="text-sm text-[#229ed9]">{quickReaction}</span>
+                    </button>
+                    <button type="button" onClick={() => setSettingsPage("appearance")} className="tg-settings-row flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left">
+                      <span className="inline-flex min-w-0 items-center gap-3 text-[15px] font-semibold">{theme === "dark" ? <Moon size={18} className="text-[#229ed9]" /> : <Sun size={18} className="text-[#229ed9]" />}Оформление</span>
+                      <span className="text-sm text-[#229ed9]">{theme === "dark" ? "Тёмная" : "Светлая"}</span>
+                    </button>
+                    <button type="button" onClick={() => setActiveTab("calls")} className="tg-settings-row flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left">
+                      <span className="inline-flex min-w-0 items-center gap-3 text-[15px] font-semibold"><Phone size={18} className="text-[#229ed9]" />Звонки</span>
+                      <span className="text-xl leading-none text-slate-400">›</span>
+                    </button>
+                    {isAdmin ? (
+                      <button type="button" onClick={() => setSettingsPage("admin")} className="tg-settings-row flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left">
+                        <span className="inline-flex min-w-0 items-center gap-3 text-[15px] font-semibold"><Wrench size={18} className="text-[#229ed9]" />Админ-панель</span>
+                        <span className="text-xl leading-none text-slate-400">›</span>
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <div className="tg-card overflow-hidden rounded-3xl shadow-sm">
+                    <button onClick={logout} className="tg-settings-row flex w-full items-center justify-between px-4 py-3 text-left active:bg-red-50">
+                      <span className="inline-flex items-center gap-3 text-[15px] font-semibold text-red-500"><LogOut size={18} />Выйти из аккаунта</span>
+                    </button>
+                  </div>
+                </>
+              ) : null}
+
+              {settingsPage === "profile" ? (
+                <div className="space-y-4">
+                  <div className="tg-card rounded-3xl p-4 text-center shadow-sm">
+                    <button type="button" onClick={() => profileAvatarRef.current?.click()} className="group relative mx-auto grid h-24 w-24 place-items-center overflow-hidden rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-3xl font-black text-white shadow-xl shadow-[#229ed9]/20">
+                      {profileUser.avatarData ? <img src={profileUser.avatarData} alt="" className="h-full w-full object-cover" /> : avatarLabel(profileUser.displayName)}
+                      <span className="absolute inset-0 grid place-items-center bg-black/35 opacity-0 transition group-hover:opacity-100"><Camera size={24} /></span>
+                    </button>
+                    <p className="tg-muted mt-3 text-xs">Нажми на аватарку, чтобы поменять фото.</p>
+                  </div>
+
+                  <div className="tg-card overflow-hidden rounded-3xl p-4 shadow-sm">
+                    <label className="mb-3 block text-xs font-semibold uppercase tracking-wide text-slate-400">Имя</label>
+                    <input value={profileNameDraft} onChange={(event) => setProfileNameDraft(event.target.value)} placeholder="Твоё имя" className="tg-input-darkfix tg-theme-field mb-4 w-full rounded-2xl px-3 py-3 text-[15px] outline-none" maxLength={40} />
+                    <label className="mb-3 block text-xs font-semibold uppercase tracking-wide text-slate-400">Username</label>
+                    <div className="tg-theme-field mb-2 flex items-center gap-2 rounded-2xl px-3 py-3">
+                      <AtSign size={16} className="text-slate-400" />
+                      <input value={profileUsernameDraft} onChange={(event) => setProfileUsernameDraft(event.target.value)} placeholder="username" className="tg-input-darkfix min-w-0 flex-1 bg-transparent text-[15px] outline-none" autoCapitalize="none" maxLength={20} />
+                    </div>
+                    <p className="tg-muted mb-4 text-xs leading-5">Можно поставить только свободный username: латиница, цифры и подчёркивание.</p>
+                    <button type="button" onClick={() => void saveMyProfile()} disabled={profileBusy} className="w-full rounded-2xl bg-[#229ed9] px-4 py-3 text-sm font-bold text-white disabled:opacity-60">{profileBusy ? "Сохраняю..." : "Сохранить профиль"}</button>
                   </div>
                 </div>
-              </div>
+              ) : null}
 
-              {isAdmin ? (
+              {settingsPage === "permissions" ? (
+                <div className="space-y-4">
+                  <div className="tg-card overflow-hidden rounded-3xl shadow-sm">
+                    <div className="border-b border-slate-100 px-4 py-3">
+                      <p className="text-sm font-semibold text-slate-950">Уведомления</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">{pushStatus}</p>
+                      {installTip ? <p className="mt-1 text-xs leading-5 text-slate-500">{installTip}</p> : null}
+                    </div>
+                    <button onClick={enablePush} disabled={pushBusy || !pushReady} className="tg-settings-row flex w-full items-center justify-between px-4 py-3 text-left disabled:opacity-50">
+                      <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Bell size={18} className="text-[#229ed9]" />{pushBusy ? "Подключаю push..." : "Включить уведомления"}</span>
+                      <span className="text-sm text-[#229ed9]">Открыть</span>
+                    </button>
+                    <button onClick={sendPushTest} disabled={testingPush || !pushReady} className="tg-settings-row flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left disabled:opacity-50">
+                      <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><TestTube2 size={18} className="text-[#229ed9]" />Проверить push</span>
+                      <span className="text-sm text-[#229ed9]">{testingPush ? "Отправляю..." : "Тест"}</span>
+                    </button>
+                  </div>
+
+                  <div className="tg-card overflow-hidden rounded-3xl shadow-sm">
+                    <div className="border-b border-slate-100 px-4 py-3">
+                      <p className="text-sm font-semibold text-slate-950">Микрофон и камера</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">{mediaPermissionStatus}</p>
+                    </div>
+                    <button onClick={() => void warmUpCallPermissions("AUDIO")} className="tg-settings-row flex w-full items-center justify-between px-4 py-3 text-left">
+                      <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Mic size={18} className="text-[#229ed9]" />Разрешить микрофон</span>
+                      <span className="text-sm text-[#229ed9]">Проверить</span>
+                    </button>
+                    <button onClick={() => void warmUpCallPermissions("VIDEO")} className="tg-settings-row flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left">
+                      <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Video size={18} className="text-[#229ed9]" />Разрешить микрофон и камеру</span>
+                      <span className="text-sm text-[#229ed9]">Проверить</span>
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {settingsPage === "reactions" ? (
+                <div className="tg-card overflow-hidden rounded-3xl shadow-sm">
+                  <div className="border-b border-slate-100 px-4 py-3">
+                    <p className="text-sm font-semibold text-slate-950">Реакция двойным тапом</p>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">Выбери смайлик: потом дважды тапни по сообщению, чтобы поставить или убрать реакцию.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 p-3">
+                    {REACTION_EMOJIS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => changeQuickReaction(emoji)}
+                        className={`tg-quick-reaction-btn rounded-2xl px-4 py-3 text-2xl font-semibold active:scale-[0.97] ${quickReaction === emoji ? "is-selected" : ""}`}
+                      >
+                        <span>{emoji}</span>
+                        {quickReaction === emoji ? <Check size={17} className="tg-quick-reaction-check" /> : null}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {settingsPage === "appearance" ? (
+                <div className="tg-card overflow-hidden rounded-3xl shadow-sm">
+                  <div className="border-b border-slate-100 px-4 py-3">
+                    <p className="text-sm font-semibold text-slate-950">Оформление</p>
+                    <p className="mt-1 text-xs text-slate-500">Выбери светлую или тёмную тему.</p>
+                  </div>
+                  <button onClick={() => setTheme("light")} className="tg-settings-row flex w-full items-center justify-between px-4 py-3 text-left">
+                    <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Sun size={18} className="text-[#229ed9]" />Светлая тема</span>
+                    {theme === "light" ? <Check size={18} className="text-[#229ed9]" /> : null}
+                  </button>
+                  <button onClick={() => setTheme("dark")} className="tg-settings-row flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left">
+                    <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Moon size={18} className="text-[#229ed9]" />Тёмная тема</span>
+                    {theme === "dark" ? <Check size={18} className="text-[#229ed9]" /> : null}
+                  </button>
+                </div>
+              ) : null}
+
+              {settingsPage === "admin" && isAdmin ? (
                 <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
                   <div className="border-b border-slate-100 px-4 py-3">
                     <p className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Wrench size={17} className="text-[#229ed9]" /> Админ-панель</p>
                     <p className="mt-1 text-xs leading-5 text-slate-500">Только @admin видит этот блок. Здесь можно закрыть приложение для всех, кроме тебя.</p>
                   </div>
-                  <button onClick={() => void toggleMaintenanceMode()} disabled={maintenanceBusy} className={`flex w-full items-center justify-between px-4 py-3 text-left font-semibold active:bg-slate-50 disabled:opacity-60 ${maintenanceClosed ? "text-emerald-600" : "text-red-500"}`}>
+                  <button onClick={() => void toggleMaintenanceMode()} disabled={maintenanceBusy} className={`tg-settings-row flex w-full items-center justify-between px-4 py-3 text-left font-semibold disabled:opacity-60 ${maintenanceClosed ? "text-emerald-600" : "text-red-500"}`}>
                     <span className="inline-flex items-center gap-3"><Wrench size={18} />{maintenanceClosed ? "Завершить обновление" : "Закрыть на тех обслуживание"}</span>
                     <span className="text-xs">{maintenanceBusy ? "..." : maintenanceClosed ? "Закрыто" : "Открыто"}</span>
                   </button>
@@ -1862,7 +2060,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                   <div className="border-t border-slate-100 px-4 py-3">
                     <p className="mb-2 text-sm font-semibold text-slate-950">Свободные юзернеймы админа</p>
                     <form onSubmit={addAdminAlias} className="flex gap-2">
-                      <input value={aliasInput} onChange={(event) => setAliasInput(event.target.value)} placeholder="например pirogram" className="tg-input-darkfix min-w-0 flex-1 rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" autoCapitalize="none" />
+                      <input value={aliasInput} onChange={(event) => setAliasInput(event.target.value)} placeholder="например pirogram" className="tg-input-darkfix tg-theme-field min-w-0 flex-1 rounded-xl px-3 py-2 text-sm outline-none" autoCapitalize="none" />
                       <button className="rounded-xl bg-[#229ed9] px-3 py-2 text-sm font-bold text-white">Добавить</button>
                     </form>
                     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1909,78 +2107,6 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                   </div>
                 </div>
               ) : null}
-
-              <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
-                <div className="border-b border-slate-100 px-4 py-3">
-                  <p className="text-sm font-semibold text-slate-950">Уведомления</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">{pushStatus}</p>
-                  {installTip ? <p className="mt-1 text-xs leading-5 text-slate-500">{installTip}</p> : null}
-                </div>
-                <button onClick={enablePush} disabled={pushBusy || !pushReady} className="flex w-full items-center justify-between px-4 py-3 text-left active:bg-slate-50 disabled:opacity-50">
-                  <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Bell size={18} className="text-[#229ed9]" />{pushBusy ? "Подключаю push..." : "Включить уведомления"}</span>
-                  <span className="text-sm text-[#229ed9]">Открыть</span>
-                </button>
-                <button onClick={sendPushTest} disabled={testingPush || !pushReady} className="flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left active:bg-slate-50 disabled:opacity-50">
-                  <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><TestTube2 size={18} className="text-[#229ed9]" />Проверить push</span>
-                  <span className="text-sm text-[#229ed9]">{testingPush ? "Отправляю..." : "Тест"}</span>
-                </button>
-              </div>
-
-              <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
-                <div className="border-b border-slate-100 px-4 py-3">
-                  <p className="text-sm font-semibold text-slate-950">Звонки</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">{mediaPermissionStatus}</p>
-                </div>
-                <button onClick={() => void warmUpCallPermissions("AUDIO")} className="flex w-full items-center justify-between px-4 py-3 text-left active:bg-slate-50">
-                  <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Mic size={18} className="text-[#229ed9]" />Разрешить микрофон</span>
-                  <span className="text-sm text-[#229ed9]">Проверить</span>
-                </button>
-                <button onClick={() => void warmUpCallPermissions("VIDEO")} className="flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left active:bg-slate-50">
-                  <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Video size={18} className="text-[#229ed9]" />Разрешить микрофон и камеру</span>
-                  <span className="text-sm text-[#229ed9]">Проверить</span>
-                </button>
-              </div>
-
-              <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
-                <div className="border-b border-slate-100 px-4 py-3">
-                  <p className="text-sm font-semibold text-slate-950">Реакция двойным тапом</p>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">Выбери смайлик: потом дважды тапни по сообщению, чтобы поставить или убрать реакцию.</p>
-                </div>
-                <div className="grid grid-cols-2 gap-2 p-3">
-                  {REACTION_EMOJIS.map((emoji) => (
-                    <button
-                      key={emoji}
-                      type="button"
-                      onClick={() => changeQuickReaction(emoji)}
-                      className={`tg-quick-reaction-btn rounded-2xl px-4 py-3 text-2xl font-semibold active:scale-[0.97] ${quickReaction === emoji ? "is-selected" : ""}`}
-                    >
-                      <span>{emoji}</span>
-                      {quickReaction === emoji ? <Check size={17} className="tg-quick-reaction-check" /> : null}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="tg-card mb-4 overflow-hidden rounded-3xl shadow-sm">
-                <div className="border-b border-slate-100 px-4 py-3">
-                  <p className="text-sm font-semibold text-slate-950">Оформление</p>
-                  <p className="mt-1 text-xs text-slate-500">Выбери светлую или тёмную тему.</p>
-                </div>
-                <button onClick={() => setTheme("light")} className="flex w-full items-center justify-between px-4 py-3 text-left active:bg-slate-50">
-                  <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Sun size={18} className="text-[#229ed9]" />Светлая тема</span>
-                  {theme === "light" ? <Check size={18} className="text-[#229ed9]" /> : null}
-                </button>
-                <button onClick={() => setTheme("dark")} className="flex w-full items-center justify-between border-t border-slate-100 px-4 py-3 text-left active:bg-slate-50">
-                  <span className="inline-flex items-center gap-3 text-[15px] text-slate-900"><Moon size={18} className="text-[#229ed9]" />Тёмная тема</span>
-                  {theme === "dark" ? <Check size={18} className="text-[#229ed9]" /> : null}
-                </button>
-              </div>
-
-              <div className="tg-card overflow-hidden rounded-3xl shadow-sm">
-                <button onClick={logout} className="flex w-full items-center justify-between px-4 py-3 text-left active:bg-red-50">
-                  <span className="inline-flex items-center gap-3 text-[15px] font-semibold text-red-500"><LogOut size={18} />Выйти из аккаунта</span>
-                </button>
-              </div>
             </div>
           ) : (
             <div className="tg-settings flex flex-1 flex-col items-center justify-center p-6 text-center">
@@ -1993,7 +2119,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
           <div className="tg-tabbar grid h-[72px] shrink-0 grid-cols-3 border-t border-slate-200 bg-[#f8fbff]/95 px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-2 text-[11px] font-medium text-slate-400 backdrop-blur-xl lg:hidden">
             <button onClick={() => { setActiveTab("calls"); setMobileListOpen(true); }} className={`flex flex-col items-center gap-1 rounded-2xl py-1 active:bg-slate-100 ${activeTab === "calls" ? "text-[#229ed9]" : ""}`}><Phone size={21} /> Calls</button>
             <button onClick={() => { setActiveTab("chats"); setMobileListOpen(true); }} className={`flex flex-col items-center gap-1 rounded-2xl py-1 active:bg-slate-100 ${activeTab === "chats" ? "text-[#229ed9]" : ""}`}><Bell size={21} /> Chats</button>
-            <button onClick={() => { setActiveTab("settings"); setMobileListOpen(true); }} className={`flex flex-col items-center gap-1 rounded-2xl py-1 active:bg-slate-100 ${activeTab === "settings" ? "text-[#229ed9]" : ""}`}><Smartphone size={21} /> Settings</button>
+            <button onClick={() => { setActiveTab("settings"); setSettingsPage("main"); setMobileListOpen(true); }} className={`flex flex-col items-center gap-1 rounded-2xl py-1 active:bg-slate-100 ${activeTab === "settings" ? "text-[#229ed9]" : ""}`}><Smartphone size={21} /> Settings</button>
           </div>
         </aside>
 
@@ -2002,11 +2128,11 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
             <button onClick={() => setMobileListOpen(true)} className="tg-icon-btn grid h-10 w-10 place-items-center rounded-full active:bg-slate-100 lg:hidden">
               <ArrowLeft size={21} />
             </button>
-            <button type="button" onClick={() => activeChat?.type === "GROUP" ? setGroupInfoOpen(true) : undefined} className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl text-left active:bg-slate-50">
-              {activeChat?.avatarData ? <img src={activeChat.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-sm font-bold text-white">{avatarLabel(activeChat?.title)}</div>}
+            <button type="button" onClick={() => activeChat?.type === "GROUP" ? setGroupInfoOpen(true) : openUserProfile(privateChatUser)} className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl text-left active:bg-slate-50">
+              {activeChat?.avatarData ? <img src={activeChat.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : privateChatUser?.avatarData ? <img src={privateChatUser.avatarData} alt="" className="h-11 w-11 rounded-full object-cover" /> : <div className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-sm font-bold text-white">{avatarLabel(activeChat?.title || privateChatUser?.displayName)}</div>}
               <span className="min-w-0 flex-1">
-                <span className="tg-title block truncate text-[16px] font-semibold">{activeChat?.title || "Выберите чат"}</span>
-                <span className="tg-accent block truncate text-[13px]">{chatSubtitle(activeChat, currentUser)}</span>
+                <span className="tg-title block truncate text-[16px] font-semibold">{activeChat?.title || privateChatUser?.displayName || "Выберите чат"}</span>
+                <span className="tg-accent block truncate text-[13px]">{chatSubtitle(activeChat, profileUser)}</span>
               </span>
             </button>
             <div className="flex gap-1">
@@ -2055,7 +2181,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                     ) : null}
                     <div className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
                       {!mine ? (
-                        message.sender?.avatarData ? <img src={message.sender.avatarData} alt="" className={`h-8 w-8 shrink-0 rounded-full object-cover ${previousSameSender ? "opacity-0" : ""}`} /> : <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white ${previousSameSender ? "opacity-0" : ""}`}>{avatarLabel(message.sender?.displayName || message.sender?.username)}</div>
+                        <button type="button" onClick={() => openUserProfile(message.sender)} disabled={previousSameSender || !message.sender} className={`shrink-0 rounded-full ${previousSameSender ? "pointer-events-none" : "active:scale-95"}`}>
+                          {message.sender?.avatarData ? <img src={message.sender.avatarData} alt="" className={`h-8 w-8 rounded-full object-cover ${previousSameSender ? "opacity-0" : ""}`} /> : <div className={`grid h-8 w-8 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white ${previousSameSender ? "opacity-0" : ""}`}>{avatarLabel(message.sender?.displayName || message.sender?.username)}</div>}
+                        </button>
                       ) : null}
                       <div className="tg-message-shell relative max-w-[78%] sm:max-w-[62%]">
                         <div className={`tg-swipe-reply-icon ${swipe?.ready ? "is-ready" : ""}`} aria-hidden="true">
@@ -2072,14 +2200,14 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                           style={swipe ? { transform: `translateX(${swipe.dx}px)`, transition: "none" } : undefined}
                           className={`tg-bubble tg-bubble-animated max-w-full touch-pan-y text-[14px] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"} ${previousSameSender ? "tg-bubble-tight" : ""}`}
                         >
-                          {!mine && !previousSameSender ? <p className="tg-bubble-author mb-1 text-[11px] font-semibold">{message.sender?.displayName || message.sender?.username || "Pirogram"}</p> : null}
+                          {!mine && !previousSameSender ? <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={() => openUserProfile(message.sender)} className="tg-bubble-author mb-1 block text-left text-[11px] font-semibold">{message.sender?.displayName || message.sender?.username || "Pirogram"}</button> : null}
                           {message.replyTo ? (
                             <div className="tg-reply-quote mb-1.5 rounded-xl px-2.5 py-1.5 text-xs">
                               <p className="truncate font-bold">{message.replyTo.sender?.displayName || message.replyTo.sender?.username || "Pirogram"}</p>
                               <p className="truncate opacity-80">{replyPreview(message.replyTo)}</p>
                             </div>
                           ) : null}
-                          {message.mediaData && message.type === "IMAGE" ? <img src={message.mediaData} alt={message.mediaName || "Фото"} className="tg-bubble-media mb-2 max-h-80 w-full object-cover" /> : null}
+                          {message.mediaData && message.type === "IMAGE" ? <button type="button" onPointerDown={(event) => event.stopPropagation()} onClick={() => setLightboxMedia({ data: message.mediaData || "", mime: message.mediaMime, name: message.mediaName, type: "IMAGE" })} className="mb-2 block overflow-hidden rounded-[14px] text-left"><img src={message.mediaData} alt={message.mediaName || "Фото"} className="tg-bubble-media max-h-80 w-full object-cover" /></button> : null}
                           {message.mediaData && message.type === "VIDEO" ? <video src={message.mediaData} controls playsInline className="tg-bubble-media mb-2 max-h-80 w-full" /> : null}
                           {message.text ? <p className="whitespace-pre-wrap break-words leading-6">{message.text}</p> : null}
                           <div className="tg-bubble-meta ml-8 mt-1 flex items-center justify-end gap-1 text-[11px]">
@@ -2199,15 +2327,84 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
             <div className="tg-theme-list mt-4 max-h-56 overflow-y-auto rounded-2xl">
               {activeChat.members.map((member) => (
-                <div key={member.id} className="flex items-center gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0">
+                <button key={member.id} type="button" onClick={() => openUserProfile(member)} className="tg-theme-row flex w-full items-center gap-3 border-b px-3 py-2.5 text-left last:border-b-0">
                   {member.avatarData ? <img src={member.avatarData} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="grid h-10 w-10 place-items-center rounded-full bg-[#229ed9] text-sm font-bold text-white">{avatarLabel(member.displayName)}</div>}
                   <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-slate-950">{member.displayName}</span><span className="block truncate text-xs text-[#229ed9]">@{member.username}</span></span>
-                </div>
+                </button>
               ))}
+            </div>
+
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between px-1">
+                <p className="tg-title text-sm font-bold">Медиа чата</p>
+                <span className="tg-muted text-xs">{activeChatMedia.length}</span>
+              </div>
+              {activeChatMedia.length ? (
+                <div className="grid max-h-44 grid-cols-3 gap-1 overflow-y-auto rounded-2xl">
+                  {activeChatMedia.slice(-18).reverse().map((item) => (
+                    <button key={item.id} type="button" onClick={() => setLightboxMedia({ data: item.mediaData || "", mime: item.mediaMime, name: item.mediaName, type: item.type === "VIDEO" ? "VIDEO" : "IMAGE" })} className="aspect-square overflow-hidden rounded-xl bg-black/10">
+                      {item.type === "IMAGE" ? <img src={item.mediaData || ""} alt={item.mediaName || "Медиа"} className="h-full w-full object-cover" /> : <video src={item.mediaData || ""} className="h-full w-full object-cover" muted playsInline />}
+                    </button>
+                  ))}
+                </div>
+              ) : <p className="tg-muted rounded-2xl border border-dashed border-slate-200 px-3 py-4 text-center text-xs">Медиа пока нет</p>}
             </div>
 
             <button onClick={() => void leaveGroupChat()} className="tg-danger-button mt-4 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold active:scale-[0.98]"><LogOut size={18} />Выйти из группы</button>
           </div>
+        </div>
+      ) : null}
+
+      {profileSheetUser ? (
+        <div className="fixed inset-0 z-[55] flex items-end justify-center bg-slate-950/35 p-0 backdrop-blur-md sm:items-center sm:p-5" onClick={() => setProfileSheetUser(null)}>
+          <div className="tg-profile-sheet tg-card w-full max-w-md rounded-t-[2rem] p-4 shadow-2xl sm:rounded-[2rem]" onClick={(event) => event.stopPropagation()}>
+            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200 sm:hidden" />
+            <div className="flex items-center justify-between">
+              <button onClick={() => setProfileSheetUser(null)} className="rounded-full px-2 py-1 text-sm font-semibold text-[#229ed9]">Закрыть</button>
+              <p className="tg-title text-sm font-bold">Профиль</p>
+              <span className="w-14" />
+            </div>
+            <div className="mt-4 text-center">
+              {profileSheetUser.avatarData ? <img src={profileSheetUser.avatarData} alt="" className="mx-auto h-28 w-28 rounded-full object-cover shadow-xl" /> : <div className="mx-auto grid h-28 w-28 place-items-center rounded-full bg-gradient-to-br from-[#7bd0ff] via-[#229ed9] to-[#0969a8] text-4xl font-black text-white shadow-xl">{avatarLabel(profileSheetUser.displayName)}</div>}
+              <p className="mt-3 text-2xl font-black tracking-[-0.03em] text-slate-950">{profileSheetUser.displayName}</p>
+              <p className="text-sm font-semibold text-[#229ed9]">@{profileSheetUser.username}</p>
+              {profileSheetUser.createdAt ? <p className="tg-muted mt-1 text-xs">В Pirogram с {dayLabel(profileSheetUser.createdAt)}</p> : null}
+            </div>
+
+            <div className="mt-5 grid grid-cols-2 gap-2 text-center text-[12px] font-semibold">
+              <button onClick={() => { setProfileSheetUser(null); if (profileSheetUser.username) void startPrivateChat(profileSheetUser.username); }} className="tg-soft-button rounded-2xl p-3 active:scale-95"><Send className="mx-auto mb-1" size={19} />Сообщение</button>
+              <button onClick={() => void startCall("AUDIO")} disabled={!activeChatId} className="tg-soft-button rounded-2xl p-3 active:scale-95 disabled:opacity-50"><Phone className="mx-auto mb-1" size={19} />Аудио</button>
+            </div>
+
+            <div className="mt-5">
+              <div className="mb-2 flex items-center justify-between px-1">
+                <p className="tg-title text-sm font-bold">Медиа в этом чате</p>
+                <span className="tg-muted text-xs">{profileUserMedia.length}</span>
+              </div>
+              {profileUserMedia.length ? (
+                <div className="grid max-h-56 grid-cols-3 gap-1 overflow-y-auto rounded-2xl">
+                  {profileUserMedia.slice(-24).reverse().map((item) => (
+                    <button key={item.id} type="button" onClick={() => setLightboxMedia({ data: item.mediaData || "", mime: item.mediaMime, name: item.mediaName, type: item.type === "VIDEO" ? "VIDEO" : "IMAGE" })} className="aspect-square overflow-hidden rounded-xl bg-black/10">
+                      {item.type === "IMAGE" ? <img src={item.mediaData || ""} alt={item.mediaName || "Медиа"} className="h-full w-full object-cover" /> : <video src={item.mediaData || ""} className="h-full w-full object-cover" muted playsInline />}
+                    </button>
+                  ))}
+                </div>
+              ) : <p className="tg-muted rounded-2xl border border-dashed border-slate-200 px-3 py-5 text-center text-xs">В этом чате медиа пока нет</p>}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {lightboxMedia ? (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/95 p-3" onClick={() => setLightboxMedia(null)}>
+          <button type="button" onClick={() => setLightboxMedia(null)} className="absolute right-4 top-[max(16px,env(safe-area-inset-top))] z-10 grid h-11 w-11 place-items-center rounded-full bg-white/10 text-white backdrop-blur active:scale-95" aria-label="Закрыть">
+            <X size={23} />
+          </button>
+          {lightboxMedia.type === "IMAGE" ? (
+            <img src={lightboxMedia.data} alt={lightboxMedia.name || "Фото"} className="max-h-[92dvh] max-w-full rounded-2xl object-contain shadow-2xl" onClick={(event) => event.stopPropagation()} />
+          ) : (
+            <video src={lightboxMedia.data} controls autoPlay playsInline className="max-h-[92dvh] max-w-full rounded-2xl shadow-2xl" onClick={(event) => event.stopPropagation()} />
+          )}
         </div>
       ) : null}
 
