@@ -909,223 +909,94 @@ input[type="range"] {
   accent-color: #229ed9;
 }
 
-
-/* v21: smoother hold menu and swipe-to-reply gestures */
-.tg-menu-backdrop {
-  animation: tgMenuBackdropIn .18s ease-out both;
+/* v21: explicit theme-safe surfaces for admin panel and group creation/info sheets */
+.tg-theme-panel {
+  background: var(--tg-sidebar-bg) !important;
+  border-color: var(--tg-border) !important;
+  color: var(--tg-search-text) !important;
 }
 
-.tg-menu-preview-bubble {
-  position: relative;
-  width: fit-content;
-  overflow: hidden;
-  border: 1px solid rgba(255,255,255,.38);
-  animation: tgMenuPreviewIn .24s cubic-bezier(.18,.89,.32,1.16) both;
+.tg-soft-surface {
+  background: color-mix(in srgb, var(--tg-search-bg) 78%, transparent) !important;
+  border: 1px solid color-mix(in srgb, var(--tg-border) 78%, transparent) !important;
+  color: var(--tg-search-text) !important;
 }
 
-.tg-message-menu .tg-reaction-menu {
-  animation: tgReactionTrayIn .24s cubic-bezier(.18,.89,.32,1.18) .03s both;
+.tg-theme-field {
+  background: var(--tg-search-bg) !important;
+  border: 1px solid var(--tg-border) !important;
+  color: var(--tg-search-text) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04), inset 0 -1px 0 rgba(0,0,0,.04);
 }
 
-.tg-message-menu .tg-modal {
-  animation: tgActionSheetIn .24s cubic-bezier(.2,.85,.24,1.08) .06s both;
+.tg-theme-field input,
+.tg-theme-field textarea,
+.tg-theme-field .tg-input-darkfix {
+  background: transparent !important;
+  color: var(--tg-search-text) !important;
 }
 
-.tg-bubble-animated {
-  transform-origin: center bottom;
-  transition: transform .22s cubic-bezier(.2,.85,.22,1), filter .18s ease, box-shadow .18s ease, opacity .18s ease;
+.tg-theme-field input::placeholder,
+.tg-theme-field textarea::placeholder,
+.tg-theme-field .tg-input-darkfix::placeholder {
+  color: var(--tg-search-placeholder) !important;
 }
 
-.tg-bubble-animated.is-holding {
-  transform: scale(.965) translateY(1px);
-  filter: brightness(.985) saturate(1.08);
-  box-shadow: 0 14px 32px rgba(15, 23, 42, .16);
+.tg-theme-list {
+  background: color-mix(in srgb, var(--tg-sidebar-bg) 92%, var(--tg-search-bg)) !important;
+  border: 1px solid var(--tg-border) !important;
+  color: var(--tg-search-text) !important;
 }
 
-.tg-bubble-animated.is-holding::before {
-  content: "";
-  position: absolute;
-  inset: -7px;
-  z-index: -1;
-  border-radius: 24px;
-  background: color-mix(in srgb, var(--tg-accent) 15%, transparent);
-  animation: tgHoldPulse .46s ease-out both;
+.tg-theme-row {
+  background: transparent !important;
+  border-color: var(--tg-border) !important;
+  color: var(--tg-search-text) !important;
 }
 
-.tg-bubble-animated.is-reply-ready {
-  box-shadow: 0 14px 34px color-mix(in srgb, var(--tg-accent) 20%, transparent), 0 5px 14px rgba(15,23,42,.08);
+.tg-theme-row:hover,
+.tg-theme-row:active {
+  background: color-mix(in srgb, var(--tg-accent) 10%, transparent) !important;
 }
 
-.tg-message-shell.is-swiping .tg-bubble-animated {
-  cursor: grabbing;
+.tg-chip-soft {
+  background: color-mix(in srgb, var(--tg-accent) 10%, var(--tg-sidebar-bg)) !important;
+  color: var(--tg-search-text) !important;
+  border: 1px solid var(--tg-border) !important;
 }
 
-.tg-swipe-reply-backdrop {
-  position: absolute;
-  inset: 4px 0 4px auto;
-  right: 0;
-  z-index: 0;
-  width: 116px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--tg-accent) 20%, transparent) 55%, color-mix(in srgb, var(--tg-accent) 32%, transparent) 100%);
-  transform: scaleX(.8);
-  transform-origin: right center;
-  transition: opacity .16s ease, transform .18s cubic-bezier(.2,.85,.22,1);
-  opacity: 0;
-  pointer-events: none;
+.tg-secondary-button {
+  background: color-mix(in srgb, var(--tg-search-bg) 92%, transparent) !important;
+  border: 1px solid var(--tg-border) !important;
+  color: var(--tg-search-text) !important;
 }
 
-.tg-swipe-reply-backdrop.is-ready {
-  transform: scaleX(1);
+.tg-soft-button {
+  background: color-mix(in srgb, var(--tg-accent) 10%, var(--tg-sidebar-bg)) !important;
+  border: 1px solid color-mix(in srgb, var(--tg-accent) 18%, var(--tg-border)) !important;
+  color: var(--tg-accent) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10);
 }
 
-.tg-swipe-reply-label {
-  position: absolute;
-  right: 52px;
-  top: 50%;
-  z-index: 0;
-  color: var(--tg-accent);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: -.01em;
-  opacity: 0;
-  transform: translate(10px, -50%) scale(.95);
-  transition: opacity .15s ease, transform .18s cubic-bezier(.2,.85,.22,1);
-  pointer-events: none;
+.tg-danger-button {
+  background: color-mix(in srgb, #ef4444 10%, var(--tg-sidebar-bg)) !important;
+  border: 1px solid color-mix(in srgb, #ef4444 22%, var(--tg-border)) !important;
+  color: #ff5d6c !important;
 }
 
-.tg-swipe-reply-label.is-ready {
-  opacity: 1;
-  transform: translate(0, -50%) scale(1);
+html[data-theme="dark"] .tg-group-info {
+  background: #202c33 !important;
+  border-color: rgba(255,255,255,.08) !important;
+  color: #e9edef !important;
 }
 
-.tg-swipe-reply-icon {
-  transition: opacity .16s ease, transform .2s cubic-bezier(.18,.89,.32,1.24), box-shadow .16s ease;
+html[data-theme="dark"] .text-slate-800,
+html[data-theme="dark"] .text-slate-700,
+html[data-theme="dark"] .text-slate-600,
+html[data-theme="dark"] .text-slate-300 {
+  color: #dbe7ef !important;
 }
 
-.tg-swipe-reply-icon.is-ready {
-  box-shadow: 0 12px 28px color-mix(in srgb, var(--tg-accent) 42%, transparent);
-}
-
-@keyframes tgHoldPulse {
-  0% { opacity: 0; transform: scale(.92); }
-  55% { opacity: 1; transform: scale(1.015); }
-  100% { opacity: .78; transform: scale(1); }
-}
-
-@keyframes tgMenuBackdropIn {
-  from { opacity: 0; backdrop-filter: blur(0); }
-  to { opacity: 1; backdrop-filter: blur(12px); }
-}
-
-@keyframes tgMenuPreviewIn {
-  from { opacity: 0; transform: translateY(18px) scale(.94); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes tgReactionTrayIn {
-  from { opacity: 0; transform: translateY(12px) scale(.86); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@keyframes tgActionSheetIn {
-  from { opacity: 0; transform: translateY(18px) scale(.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-html[data-theme="dark"] .tg-menu-preview-bubble {
-  border-color: rgba(255,255,255,.08);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tg-menu-backdrop,
-  .tg-menu-preview-bubble,
-  .tg-message-menu .tg-reaction-menu,
-  .tg-message-menu .tg-modal,
-  .tg-bubble-animated.is-holding::before {
-    animation: none !important;
-  }
-}
-
-
-/* v22: real bidirectional swipe-to-reply + smoother long-press menu */
-.tg-message-shell {
-  overflow: visible;
-}
-
-.tg-bubble-animated {
-  -webkit-tap-highlight-color: transparent;
-  touch-action: pan-y;
-}
-
-.tg-message-shell.is-swiping .tg-bubble-animated {
-  filter: saturate(1.04);
-  will-change: transform;
-}
-
-.tg-swipe-reply-backdrop.is-swiping-right {
-  inset: 4px auto 4px 0;
-  left: 0;
-  right: auto;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--tg-accent) 32%, transparent) 0%, color-mix(in srgb, var(--tg-accent) 20%, transparent) 45%, transparent 100%);
-  transform-origin: left center;
-}
-
-.tg-swipe-reply-backdrop.is-swiping-left {
-  inset: 4px 0 4px auto;
-  left: auto;
-  right: 0;
-  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--tg-accent) 20%, transparent) 55%, color-mix(in srgb, var(--tg-accent) 32%, transparent) 100%);
-  transform-origin: right center;
-}
-
-.tg-swipe-reply-icon.is-swiping-right {
-  left: 10px;
-  right: auto;
-  transform: translateY(-50%) scale(.72) rotate(16deg);
-}
-
-.tg-swipe-reply-icon.is-swiping-left {
-  right: 10px;
-  left: auto;
-  transform: translateY(-50%) scale(.72) rotate(-16deg);
-}
-
-.tg-swipe-reply-icon.is-swiping-right.is-ready,
-.tg-swipe-reply-icon.is-swiping-left.is-ready {
-  opacity: 1;
-  transform: translateY(-50%) scale(1) rotate(0deg);
-}
-
-.tg-swipe-reply-label.is-swiping-right {
-  left: 52px;
-  right: auto;
-  transform: translate(-10px, -50%) scale(.95);
-}
-
-.tg-swipe-reply-label.is-swiping-left {
-  right: 52px;
-  left: auto;
-  transform: translate(10px, -50%) scale(.95);
-}
-
-.tg-swipe-reply-label.is-swiping-right.is-ready,
-.tg-swipe-reply-label.is-swiping-left.is-ready {
-  opacity: 1;
-  transform: translate(0, -50%) scale(1);
-}
-
-.tg-message-menu {
-  animation: tgMessageMenuFloatIn .18s cubic-bezier(.2,.85,.24,1.12) both;
-}
-
-@keyframes tgMessageMenuFloatIn {
-  from { opacity: 0; transform: translateY(10px) scale(.96); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tg-message-menu {
-    animation: none !important;
-  }
+html[data-theme="dark"] .bg-slate-200 {
+  background-color: rgba(255,255,255,.18) !important;
 }

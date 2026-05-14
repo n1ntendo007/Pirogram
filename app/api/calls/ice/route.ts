@@ -3,7 +3,6 @@ import { getCurrentUser } from "@/lib/auth";
 import { jsonError } from "@/lib/http";
 
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 function turnUrls() {
   return (process.env.TURN_URLS || process.env.TURN_URL || "")
@@ -27,5 +26,5 @@ export async function GET() {
     iceServers.push({ urls, username, credential });
   }
 
-  return NextResponse.json({ iceServers, hasTurn: iceServers.length > 1 }, { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } });
+  return NextResponse.json({ iceServers, hasTurn: iceServers.length > 1 });
 }

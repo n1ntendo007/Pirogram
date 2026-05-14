@@ -1712,22 +1712,22 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                 </label>
 
                 {groupCreatorOpen ? (
-                  <form onSubmit={createGroupChat} className="tg-popover tg-dark-panel mt-2 space-y-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/5">
+                  <form onSubmit={createGroupChat} className="tg-popover tg-theme-panel mt-2 space-y-3 rounded-2xl border p-3 shadow-lg shadow-slate-900/5">
                     <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Users size={17} className="text-[#229ed9]" /> Новый общий чат</div>
-                    <input value={groupTitle} onChange={(event) => setGroupTitle(event.target.value)} placeholder="Название чата" className="tg-input-darkfix tg-dark-field w-full rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" maxLength={64} />
-                    <div className="tg-dark-soft-panel rounded-2xl bg-[#f4f7fb] p-2">
+                    <input value={groupTitle} onChange={(event) => setGroupTitle(event.target.value)} placeholder="Название чата" className="tg-input-darkfix tg-theme-field w-full rounded-xl px-3 py-2 text-sm outline-none" maxLength={64} />
+                    <div className="tg-soft-surface rounded-2xl p-2">
                       <div className="mb-2 flex flex-wrap gap-1.5">
                         {groupSelectedUsers.map((member) => (
-                          <button key={member.id} type="button" onClick={() => setGroupSelectedUsers((current) => current.filter((item) => item.id !== member.id))} className="tg-dark-chip rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+                          <button key={member.id} type="button" onClick={() => setGroupSelectedUsers((current) => current.filter((item) => item.id !== member.id))} className="tg-chip-soft rounded-full px-2.5 py-1 text-xs font-semibold shadow-sm">
                             {member.displayName} <span className="text-slate-400">×</span>
                           </button>
                         ))}
                       </div>
-                      <input value={groupMemberSearch} onChange={(event) => setGroupMemberSearch(event.target.value)} placeholder="Найти по нику или @username" className="tg-input-darkfix tg-dark-field-strong w-full rounded-xl bg-white px-3 py-2 text-sm outline-none" autoCapitalize="none" />
+                      <input value={groupMemberSearch} onChange={(event) => setGroupMemberSearch(event.target.value)} placeholder="Найти по нику или @username" className="tg-input-darkfix tg-theme-field w-full rounded-xl px-3 py-2 text-sm outline-none" autoCapitalize="none" />
                       {groupPickResults.length ? (
-                        <div className="tg-dark-list mt-2 overflow-hidden rounded-xl bg-white shadow-sm">
+                        <div className="tg-theme-list mt-2 overflow-hidden rounded-xl shadow-sm">
                           {groupPickResults.map((user) => (
-                            <button key={user.id} type="button" onClick={() => addSelectedGroupUser(user)} className="tg-dark-list-row flex w-full items-center gap-2 border-b border-slate-100 px-2 py-2 text-left last:border-b-0 active:bg-[#eef7fd]">
+                            <button key={user.id} type="button" onClick={() => addSelectedGroupUser(user)} className="tg-theme-row flex w-full items-center gap-2 border-b px-2 py-2 text-left last:border-b-0">
                               {user.avatarData ? <img src={user.avatarData} alt="" className="h-8 w-8 rounded-full object-cover" /> : <div className="grid h-8 w-8 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white">{avatarLabel(user.displayName)}</div>}
                               <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{user.displayName}</span><span className="block truncate text-xs text-[#229ed9]">@{user.username}</span></span>
                               <Plus size={16} className="text-[#229ed9]" />
@@ -1736,9 +1736,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                         </div>
                       ) : null}
                     </div>
-                    <input value={groupMembers} onChange={(event) => setGroupMembers(event.target.value)} placeholder="Или @username через пробел" className="tg-input-darkfix tg-dark-field w-full rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" autoCapitalize="none" />
+                    <input value={groupMembers} onChange={(event) => setGroupMembers(event.target.value)} placeholder="Или @username через пробел" className="tg-input-darkfix tg-theme-field w-full rounded-xl px-3 py-2 text-sm outline-none" autoCapitalize="none" />
                     <div className="flex gap-2">
-                      <button type="button" onClick={() => setGroupCreatorOpen(false)} className="tg-dark-secondary flex-1 rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600 active:scale-[0.98]">Отмена</button>
+                      <button type="button" onClick={() => setGroupCreatorOpen(false)} className="tg-secondary-button flex-1 rounded-xl px-3 py-2 text-sm font-semibold active:scale-[0.98]">Отмена</button>
                       <button disabled={groupBusy || !groupTitle.trim()} className="flex-1 rounded-xl bg-[#229ed9] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 active:scale-[0.98]">{groupBusy ? "Создаю..." : "Создать"}</button>
                     </div>
                   </form>
@@ -1862,7 +1862,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                   <div className="border-t border-slate-100 px-4 py-3">
                     <p className="mb-2 text-sm font-semibold text-slate-950">Свободные юзернеймы админа</p>
                     <form onSubmit={addAdminAlias} className="flex gap-2">
-                      <input value={aliasInput} onChange={(event) => setAliasInput(event.target.value)} placeholder="например pirogram" className="tg-input-darkfix tg-dark-field min-w-0 flex-1 rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" autoCapitalize="none" />
+                      <input value={aliasInput} onChange={(event) => setAliasInput(event.target.value)} placeholder="например pirogram" className="tg-input-darkfix min-w-0 flex-1 rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" autoCapitalize="none" />
                       <button className="rounded-xl bg-[#229ed9] px-3 py-2 text-sm font-bold text-white">Добавить</button>
                     </form>
                     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1876,14 +1876,14 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
                   <div className="border-t border-slate-100 px-4 py-3">
                     <p className="mb-2 text-sm font-semibold text-slate-950">Профили пользователей</p>
-                    <label className="tg-dark-field flex h-10 items-center gap-2 rounded-xl bg-[#eef2f7] px-3 text-sm text-slate-500">
+                    <label className="tg-theme-field flex h-10 items-center gap-2 rounded-xl px-3 text-sm">
                       <Search size={16} />
                       <input value={adminUserSearch} onChange={(event) => setAdminUserSearch(event.target.value)} placeholder="Найти по нику или @username" className="tg-input-darkfix min-w-0 flex-1 bg-transparent outline-none" autoCapitalize="none" />
                     </label>
                     {adminUserResults.length ? (
-                      <div className="tg-dark-list mt-2 overflow-hidden rounded-2xl bg-[#f8fbff]">
+                      <div className="tg-theme-list mt-2 overflow-hidden rounded-2xl">
                         {adminUserResults.map((user) => (
-                          <button key={user.id} type="button" onClick={() => selectAdminUser(user)} className="tg-dark-list-row flex w-full items-center gap-2 border-b border-slate-100 px-2 py-2 text-left last:border-b-0 active:bg-[#eef7fd]">
+                          <button key={user.id} type="button" onClick={() => selectAdminUser(user)} className="tg-theme-row flex w-full items-center gap-2 border-b px-2 py-2 text-left last:border-b-0">
                             {user.avatarData ? <img src={user.avatarData} alt="" className="h-9 w-9 rounded-full object-cover" /> : <div className="grid h-9 w-9 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white">{avatarLabel(user.displayName)}</div>}
                             <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{user.displayName}</span><span className="block truncate text-xs text-[#229ed9]">@{user.username}</span></span>
                             <UserRound size={16} className="text-slate-400" />
@@ -1893,13 +1893,13 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                     ) : null}
 
                     {adminSelectedUser ? (
-                      <div className="tg-dark-soft-panel mt-3 rounded-2xl bg-[#f4f7fb] p-3">
+                      <div className="tg-soft-surface mt-3 rounded-2xl p-3">
                         <div className="mb-3 flex items-center gap-2">
                           {adminSelectedUser.avatarData ? <img src={adminSelectedUser.avatarData} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="grid h-10 w-10 place-items-center rounded-full bg-[#229ed9] text-sm font-bold text-white">{avatarLabel(adminSelectedUser.displayName)}</div>}
                           <div className="min-w-0"><p className="truncate text-sm font-bold">{adminSelectedUser.displayName}</p><p className="truncate text-xs text-[#229ed9]">@{adminSelectedUser.username}</p></div>
                         </div>
-                        <input value={adminDisplayNameDraft} onChange={(event) => setAdminDisplayNameDraft(event.target.value)} placeholder="Ник" className="tg-input-darkfix tg-dark-field-strong mb-2 w-full rounded-xl bg-white px-3 py-2 text-sm outline-none" />
-                        <div className="tg-dark-field-strong mb-2 flex items-center gap-2 rounded-xl bg-white px-3 py-2">
+                        <input value={adminDisplayNameDraft} onChange={(event) => setAdminDisplayNameDraft(event.target.value)} placeholder="Ник" className="tg-input-darkfix tg-theme-field mb-2 w-full rounded-xl px-3 py-2 text-sm outline-none" />
+                        <div className="tg-theme-field mb-2 flex items-center gap-2 rounded-xl px-3 py-2">
                           <AtSign size={15} className="text-slate-400" />
                           <input value={adminUsernameDraft} onChange={(event) => setAdminUsernameDraft(event.target.value)} placeholder="username" className="tg-input-darkfix min-w-0 flex-1 bg-transparent text-sm outline-none" autoCapitalize="none" />
                         </div>
@@ -2154,8 +2154,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
       {groupInfoOpen && activeChat?.type === "GROUP" ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/35 p-0 backdrop-blur-md sm:items-center sm:p-5" onClick={() => setGroupInfoOpen(false)}>
-          <div className="tg-group-info tg-dark-panel w-full max-w-md rounded-t-[2rem] bg-white p-4 shadow-2xl sm:rounded-[2rem]" onClick={(event) => event.stopPropagation()}>
-            <div className="tg-dark-handle mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200 sm:hidden" />
+          <div className="tg-group-info tg-card w-full max-w-md rounded-t-[2rem] p-4 shadow-2xl sm:rounded-[2rem]" onClick={(event) => event.stopPropagation()}>
+            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200 sm:hidden" />
             <div className="flex items-center justify-between">
               <button onClick={() => setGroupInfoOpen(false)} className="rounded-full px-2 py-1 text-sm font-semibold text-[#229ed9]">Закрыть</button>
               <p className="tg-title text-sm font-bold">Информация</p>
@@ -2172,22 +2172,22 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               <p className="text-sm text-slate-500">{activeChat.memberCount ?? activeChat.members.length} участников</p>
             </div>
 
-            <div className="mt-5 grid grid-cols-4 gap-2 text-center text-[11px] font-semibold text-slate-600 tg-dark-actions-grid">
-              <button onClick={() => void startCall("AUDIO")} className="tg-dark-action rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><Phone className="mx-auto mb-1" size={20} />Аудио</button>
-              <button onClick={() => void startCall("VIDEO")} className="tg-dark-action rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><Video className="mx-auto mb-1" size={20} />Видео</button>
-              <button onClick={() => void renameGroupChat()} className="tg-dark-action rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><Pencil className="mx-auto mb-1" size={20} />Название</button>
-              <button onClick={() => profileAvatarRef.current && setInviteSearch("")} className="tg-dark-action rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><UserPlus className="mx-auto mb-1" size={20} />Добавить</button>
+            <div className="mt-5 grid grid-cols-4 gap-2 text-center text-[11px] font-semibold">
+              <button onClick={() => void startCall("AUDIO")} className="tg-soft-button rounded-2xl p-3 active:scale-95"><Phone className="mx-auto mb-1" size={20} />Аудио</button>
+              <button onClick={() => void startCall("VIDEO")} className="tg-soft-button rounded-2xl p-3 active:scale-95"><Video className="mx-auto mb-1" size={20} />Видео</button>
+              <button onClick={() => void renameGroupChat()} className="tg-soft-button rounded-2xl p-3 active:scale-95"><Pencil className="mx-auto mb-1" size={20} />Название</button>
+              <button onClick={() => profileAvatarRef.current && setInviteSearch("")} className="tg-soft-button rounded-2xl p-3 active:scale-95"><UserPlus className="mx-auto mb-1" size={20} />Добавить</button>
             </div>
 
-            <div className="tg-dark-soft-panel mt-4 rounded-2xl bg-[#f4f7fb] p-3">
-              <label className="tg-dark-field-strong flex h-10 items-center gap-2 rounded-xl bg-white px-3 text-sm text-slate-500">
+            <div className="tg-soft-surface mt-4 rounded-2xl p-3">
+              <label className="tg-theme-field flex h-10 items-center gap-2 rounded-xl px-3 text-sm">
                 <Search size={16} />
                 <input value={inviteSearch} onChange={(event) => setInviteSearch(event.target.value)} placeholder="Добавить по нику или @username" className="tg-input-darkfix min-w-0 flex-1 bg-transparent outline-none" autoCapitalize="none" />
               </label>
               {inviteResults.length ? (
-                <div className="tg-dark-list mt-2 overflow-hidden rounded-xl bg-white">
+                <div className="tg-theme-list mt-2 overflow-hidden rounded-xl">
                   {inviteResults.map((user) => (
-                    <button key={user.id} type="button" onClick={() => void inviteUserToActiveGroup(user)} className="tg-dark-list-row flex w-full items-center gap-2 border-b border-slate-100 px-2 py-2 text-left last:border-b-0 active:bg-[#eef7fd]">
+                    <button key={user.id} type="button" onClick={() => void inviteUserToActiveGroup(user)} className="tg-theme-row flex w-full items-center gap-2 border-b px-2 py-2 text-left last:border-b-0">
                       {user.avatarData ? <img src={user.avatarData} alt="" className="h-9 w-9 rounded-full object-cover" /> : <div className="grid h-9 w-9 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white">{avatarLabel(user.displayName)}</div>}
                       <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{user.displayName}</span><span className="block truncate text-xs text-[#229ed9]">@{user.username}</span></span>
                       <Plus size={16} className="text-[#229ed9]" />
@@ -2197,7 +2197,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               ) : null}
             </div>
 
-            <div className="tg-dark-list mt-4 max-h-56 overflow-y-auto rounded-2xl bg-[#f8fbff]">
+            <div className="tg-theme-list mt-4 max-h-56 overflow-y-auto rounded-2xl">
               {activeChat.members.map((member) => (
                 <div key={member.id} className="flex items-center gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0">
                   {member.avatarData ? <img src={member.avatarData} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="grid h-10 w-10 place-items-center rounded-full bg-[#229ed9] text-sm font-bold text-white">{avatarLabel(member.displayName)}</div>}
@@ -2206,7 +2206,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               ))}
             </div>
 
-            <button onClick={() => void leaveGroupChat()} className="tg-dark-danger mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-500 active:scale-[0.98]"><LogOut size={18} />Выйти из группы</button>
+            <button onClick={() => void leaveGroupChat()} className="tg-danger-button mt-4 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold active:scale-[0.98]"><LogOut size={18} />Выйти из группы</button>
           </div>
         </div>
       ) : null}
