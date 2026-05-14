@@ -283,9 +283,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [inviteResults, setInviteResults] = useState<User[]>([]);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [messageMenu, setMessageMenu] = useState<Message | null>(null);
-  const [pressedMessageId, setPressedMessageId] = useState<string | null>(null);
   const [quickReaction, setQuickReaction] = useState<ReactionEmoji>("😘");
-  const [swipeState, setSwipeState] = useState<{ id: string; dx: number; ready: boolean; direction: "left" | "right" } | null>(null);
+  const [swipeState, setSwipeState] = useState<{ id: string; dx: number; ready: boolean } | null>(null);
   const [reactionBurst, setReactionBurst] = useState<{ id: string; emoji: ReactionEmoji } | null>(null);
   const [sending, setSending] = useState(false);
   const [loadingChats, setLoadingChats] = useState(true);
@@ -303,7 +302,6 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const [callCameraOff, setCallCameraOff] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(false);
   const [audioRouteStatus, setAudioRouteStatus] = useState("Обычный звук");
-  const [audioNeedsTap, setAudioNeedsTap] = useState(false);
   const [mediaPermissionStatus, setMediaPermissionStatus] = useState("Микрофон/камера ещё не проверены");
   const [iceServers, setIceServers] = useState<RTCIceServer[]>(DEFAULT_ICE_SERVERS);
   const [turnReady, setTurnReady] = useState(false);
@@ -333,8 +331,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   const signalStartedRef = useRef<string | null>(null);
   const addedIceKeysRef = useRef<Set<string>>(new Set());
   const pendingLocalIceRef = useRef<SignalIce[]>([]);
-  const iceFlushTimerRef = useRef<number | null>(null);
-  const messagePointerStartRef = useRef<{ x: number; y: number; id: string; swiping: boolean } | null>(null);
+  const messagePointerStartRef = useRef<{ x: number; y: number; id: string } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const lastTapRef = useRef<{ id: string; at: number } | null>(null);
@@ -441,8 +438,6 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   useEffect(() => {
     setReplyTo(null);
     setMessageMenu(null);
-    setPressedMessageId(null);
-    setSwipeState(null);
     if (!activeChatId) return;
     void loadMessages(activeChatId);
   }, [activeChatId]);
@@ -499,11 +494,17 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   }, [localStream, activeCall?.id, activeCall?.status]);
 
   useEffect(() => {
-    attachRemoteStream(remoteStream);
-    if (remoteStream) {
-      void unlockRemoteAudio();
-      void applyAudioRoute(speakerOn);
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = remoteStream;
+      if (remoteStream) void remoteVideoRef.current.play().catch(() => undefined);
     }
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = remoteStream;
+      remoteAudioRef.current.volume = 1;
+      remoteAudioRef.current.muted = false;
+      if (remoteStream) void remoteAudioRef.current.play().catch(() => undefined);
+    }
+    if (remoteStream) void applyAudioRoute(speakerOn);
   }, [remoteStream, activeCall?.id, activeCall?.status, speakerOn]);
 
   useEffect(() => {
@@ -537,22 +538,14 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     if (!options?.silent && data.isAdmin) void loadAdminAliases();
   }
 
-  async function fetchIceServers() {
-    const response = await fetch("/api/calls/ice", { credentials: "include", cache: "no-store" }).catch(() => null);
+  async function loadIceServers() {
+    const response = await fetch("/api/calls/ice", { credentials: "include" }).catch(() => null);
     const data = response ? await response.json().catch(() => null) : null;
     if (response?.ok && Array.isArray(data?.iceServers)) {
-      const nextIceServers = data.iceServers as RTCIceServer[];
-      const hasTurn = Boolean(data.hasTurn);
-      setIceServers(nextIceServers);
-      setTurnReady(hasTurn);
-      setMediaPermissionStatus(hasTurn ? "Звонки готовы: STUN + TURN подключены" : "STUN включён. Для разных сетей лучше добавить TURN_URLS в Vercel");
-      return { iceServers: nextIceServers, hasTurn };
+      setIceServers(data.iceServers);
+      setTurnReady(Boolean(data.hasTurn));
+      setMediaPermissionStatus(data.hasTurn ? "Звонки готовы: STUN + TURN подключены" : "STUN включён. Для разных сетей лучше добавить TURN_URLS в Vercel");
     }
-    return { iceServers, hasTurn: turnReady };
-  }
-
-  async function loadIceServers() {
-    await fetchIceServers();
   }
 
   async function loadAdminAliases() {
@@ -1088,71 +1081,43 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     longPressTimerRef.current = null;
   }
 
-  function clearMessageInteraction() {
-    clearMessageGesture();
-    messagePointerStartRef.current = null;
-    longPressTriggeredRef.current = false;
-    setPressedMessageId(null);
-    setSwipeState(null);
-  }
-
   function changeQuickReaction(emoji: ReactionEmoji) {
     setQuickReaction(emoji);
     window.localStorage.setItem("pirogram_quick_reaction", emoji);
   }
 
   function startMessagePointer(event: React.PointerEvent, message: Message) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch {
       // Some browsers do not allow pointer capture on every element.
     }
-    messagePointerStartRef.current = { x: event.clientX, y: event.clientY, id: message.id, swiping: false };
+    messagePointerStartRef.current = { x: event.clientX, y: event.clientY, id: message.id };
     longPressTriggeredRef.current = false;
-    setPressedMessageId(message.id);
     setSwipeState(null);
     clearMessageGesture();
     longPressTimerRef.current = window.setTimeout(() => {
-      const start = messagePointerStartRef.current;
-      if (!start || start.id !== message.id || start.swiping) return;
       longPressTriggeredRef.current = true;
-      setPressedMessageId(null);
       setSwipeState(null);
       setMessageMenu(message);
-      if (navigator.vibrate) navigator.vibrate([20, 30, 20]);
-    }, 420);
+      if (navigator.vibrate) navigator.vibrate(35);
+    }, 520);
   }
 
   function moveMessagePointer(event: React.PointerEvent, message: Message) {
     const start = messagePointerStartRef.current;
     if (!start || start.id !== message.id || longPressTriggeredRef.current) return;
-
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
-    const absX = Math.abs(dx);
-    const absY = Math.abs(dy);
-
-    if (absY > 24 && absY > absX * 1.15) {
-      clearMessageGesture();
-      start.swiping = false;
-      setPressedMessageId(null);
+    if (Math.abs(dy) > 54) {
       setSwipeState(null);
       return;
     }
-
-    if (absX > 7 && absX > absY * 1.15) {
-      if (event.cancelable) event.preventDefault();
+    if (dx < -8) {
       clearMessageGesture();
-      start.swiping = true;
-      setPressedMessageId(null);
-
-      const direction = dx > 0 ? "right" : "left";
-      const sign = dx > 0 ? 1 : -1;
-      const maxSwipe = 112;
-      const clamped = sign * Math.min(absX, maxSwipe);
-      setSwipeState({ id: message.id, dx: clamped, ready: Math.abs(clamped) >= 54, direction });
-    } else if (absX < 5 && swipeState?.id === message.id) {
+      const clamped = Math.max(dx, -92);
+      setSwipeState({ id: message.id, dx: clamped, ready: clamped < -46 });
+    } else if (swipeState?.id === message.id) {
       setSwipeState(null);
     }
   }
@@ -1171,7 +1136,6 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
   function endMessagePointer(event: React.PointerEvent, message: Message) {
     const start = messagePointerStartRef.current;
     clearMessageGesture();
-    setPressedMessageId(null);
     messagePointerStartRef.current = null;
     const wasLongPress = longPressTriggeredRef.current;
     longPressTriggeredRef.current = false;
@@ -1179,21 +1143,16 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       setSwipeState(null);
       return;
     }
-
     const dx = event.clientX - start.x;
     const dy = event.clientY - start.y;
-    const absX = Math.abs(dx);
-    const absY = Math.abs(dy);
-    const wasSwipe = absX >= 54 && absY < 48;
-
+    const wasSwipe = dx < -45 && Math.abs(dy) < 42;
     if (wasSwipe) {
       setReplyTo(message);
-      if (navigator.vibrate) navigator.vibrate([12, 18, 12]);
-    } else if (!start.swiping && absX < 10 && absY < 10) {
+      if (navigator.vibrate) navigator.vibrate(20);
+    } else if (Math.abs(dx) < 10 && Math.abs(dy) < 10) {
       handleMessageTap(message);
     }
-
-    window.setTimeout(() => setSwipeState((current) => current?.id === message.id ? null : current), 120);
+    window.setTimeout(() => setSwipeState((current) => current?.id === message.id ? null : current), 110);
   }
 
   function applyMessageReactions(messageId: string, reactions: MessageReaction[]) {
@@ -1276,13 +1235,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     setCallCameraOff(false);
     setSpeakerOn(false);
     setAudioRouteStatus("Обычный звук");
-    setAudioNeedsTap(false);
     addedIceKeysRef.current = new Set();
     pendingLocalIceRef.current = [];
-    if (iceFlushTimerRef.current) {
-      window.clearTimeout(iceFlushTimerRef.current);
-      iceFlushTimerRef.current = null;
-    }
     signalStartedRef.current = null;
     callRoleRef.current = null;
   }
@@ -1383,11 +1337,10 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     return stream;
   }
 
-  async function sendIceCandidates(role: "caller" | "receiver", candidates: SignalIce[]) {
-    if (!candidates.length) return;
+  async function sendIceCandidate(role: "caller" | "receiver", candidate: SignalIce) {
     const currentCall = activeCallRef.current;
     if (!currentCall) {
-      pendingLocalIceRef.current.push(...candidates);
+      pendingLocalIceRef.current.push(candidate);
       return;
     }
     const field = role === "caller" ? "callerIce" : "receiverIce";
@@ -1395,28 +1348,19 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       method: "PATCH",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ callId: currentCall.id, [field]: candidates })
+      body: JSON.stringify({ callId: currentCall.id, [field]: [candidate] })
     }).catch(() => undefined);
   }
 
   async function flushPendingIce(role: "caller" | "receiver") {
-    if (!activeCallRef.current || !pendingLocalIceRef.current.length) return;
     const candidates = pendingLocalIceRef.current;
+    if (!candidates.length) return;
     pendingLocalIceRef.current = [];
-    await sendIceCandidates(role, candidates);
+    await Promise.all(candidates.map((candidate) => sendIceCandidate(role, candidate)));
   }
 
-  function queueLocalIce(role: "caller" | "receiver", candidate: SignalIce) {
-    pendingLocalIceRef.current.push(candidate);
-    if (iceFlushTimerRef.current) return;
-    iceFlushTimerRef.current = window.setTimeout(() => {
-      iceFlushTimerRef.current = null;
-      void flushPendingIce(role);
-    }, 300);
-  }
-
-  function createPeer(role: "caller" | "receiver", currentIceServers: RTCIceServer[] = iceServers) {
-    const pc = new RTCPeerConnection({ iceServers: currentIceServers, iceCandidatePoolSize: 10 });
+  function createPeer(role: "caller" | "receiver") {
+    const pc = new RTCPeerConnection({ iceServers, iceCandidatePoolSize: 10 });
     const remote = new MediaStream();
     remoteStreamRef.current = remote;
     setRemoteStream(remote);
@@ -1428,9 +1372,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
         if (!remote.getTracks().some((item) => item.id === track.id)) remote.addTrack(track);
       }
       setRemoteStream(remote);
-      attachRemoteStream(remote);
       window.setTimeout(() => {
-        void unlockRemoteAudio();
+        void remoteAudioRef.current?.play().catch(() => undefined);
+        void remoteVideoRef.current?.play().catch(() => undefined);
       }, 120);
     };
 
@@ -1439,7 +1383,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       if (state === "connected") {
         setCallWorking(true);
         setCallNotice(role === "caller" ? "Собеседник подключился. Звук включён." : "Вы подключены к звонку. Звук включён.");
-        void unlockRemoteAudio();
+        void remoteAudioRef.current?.play().catch(() => undefined);
+        void remoteVideoRef.current?.play().catch(() => undefined);
       }
       if (["failed", "disconnected", "closed"].includes(state)) {
         if (state === "failed") setCallNotice("Звонок не смог установиться. Иногда нужен TURN-сервер или другая сеть.");
@@ -1449,7 +1394,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     pc.oniceconnectionstatechange = () => {
       if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
         setCallWorking(true);
-        void unlockRemoteAudio();
+        void remoteAudioRef.current?.play().catch(() => undefined);
+        void remoteVideoRef.current?.play().catch(() => undefined);
       }
     };
 
@@ -1459,11 +1405,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       const key = JSON.stringify(candidate);
       if (addedIceKeysRef.current.has(`local:${key}`)) return;
       addedIceKeysRef.current.add(`local:${key}`);
-      queueLocalIce(role, candidate);
-    };
-
-    pc.onicegatheringstatechange = () => {
-      if (pc.iceGatheringState === "complete") void flushPendingIce(role);
+      void sendIceCandidate(role, candidate);
     };
 
     peerRef.current = pc;
@@ -1491,12 +1433,12 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     cleanupCallMedia();
 
     try {
-      const iceConfig = await fetchIceServers();
+      void loadIceServers();
       setCallNotice(kind === "VIDEO" ? "Создаю видеозвонок..." : "Создаю аудиозвонок...");
       const stream = await ensureLocalMedia(kind);
       void localVideoRef.current?.play().catch(() => undefined);
-      void unlockRemoteAudio();
-      const pc = createPeer("caller", iceConfig.iceServers);
+      void remoteAudioRef.current?.play().catch(() => undefined);
+      const pc = createPeer("caller");
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
@@ -1518,7 +1460,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       activeCallRef.current = data.call;
       setActiveCall(data.call);
       await flushPendingIce("caller");
-      setCallNotice(iceConfig.hasTurn ? "Звоним… TURN включён, соединение должно проходить через разные сети стабильнее." : "Звоним… STUN включён. Для самых сложных сетей добавь TURN_URLS/TURN_USERNAME/TURN_CREDENTIAL в Vercel.");
+      setCallNotice(turnReady ? "Звоним… TURN включён, соединение должно проходить через разные сети стабильнее." : "Звоним… STUN включён. Для самых сложных сетей добавь TURN_URLS/TURN_USERNAME/TURN_CREDENTIAL в Vercel.");
     } catch (error) {
       cleanupCallMedia();
       const message = error instanceof Error ? error.message : "Проверь разрешение микрофона/камеры.";
@@ -1538,11 +1480,10 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       activeCallRef.current = callToAnswer;
       cleanupCallMedia();
       activeCallRef.current = callToAnswer;
-      const iceConfig = await fetchIceServers();
       const stream = await ensureLocalMedia(callToAnswer.kind);
       void localVideoRef.current?.play().catch(() => undefined);
-      void unlockRemoteAudio();
-      const pc = createPeer("receiver", iceConfig.iceServers);
+      void remoteAudioRef.current?.play().catch(() => undefined);
+      const pc = createPeer("receiver");
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       if (!callToAnswer.offer?.sdp) {
@@ -1572,8 +1513,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       await flushPendingIce("receiver");
       await applyRemoteIce(data.call.callerIce);
       void localVideoRef.current?.play().catch(() => undefined);
-      void unlockRemoteAudio();
-      setCallNotice(iceConfig.hasTurn ? "Подключаю звонок через TURN..." : "Подключаю звонок...");
+      void remoteAudioRef.current?.play().catch(() => undefined);
+      void remoteVideoRef.current?.play().catch(() => undefined);
+      setCallNotice("Подключаю звонок...");
     } catch (error) {
       cleanupCallMedia();
       const message = error instanceof Error ? error.message : "Проверь разрешение микрофона/камеры.";
@@ -1665,41 +1607,6 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
     }
   }
 
-  function attachRemoteStream(stream: MediaStream | null) {
-    if (remoteAudioRef.current) {
-      remoteAudioRef.current.srcObject = stream;
-      remoteAudioRef.current.muted = false;
-      remoteAudioRef.current.volume = 1;
-    }
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = stream;
-      remoteVideoRef.current.muted = false;
-      remoteVideoRef.current.volume = 1;
-    }
-  }
-
-  async function unlockRemoteAudio() {
-    const audio = remoteAudioRef.current;
-    const video = remoteVideoRef.current;
-    if (remoteStreamRef.current) attachRemoteStream(remoteStreamRef.current);
-    if (audio) {
-      audio.muted = false;
-      audio.volume = 1;
-    }
-    if (video) {
-      video.muted = false;
-      video.volume = 1;
-    }
-
-    try {
-      await audio?.play();
-      await video?.play();
-      setAudioNeedsTap(false);
-    } catch {
-      setAudioNeedsTap(true);
-    }
-  }
-
   async function applyAudioRoute(nextSpeakerOn: boolean) {
     const audio = remoteAudioRef.current as AudioOutputElement | null;
     if (!audio) return;
@@ -1709,10 +1616,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
     try {
       await audio.play();
-      setAudioNeedsTap(false);
     } catch {
-      // iOS/Safari/Chrome can block sound until the user taps a visible button.
-      setAudioNeedsTap(true);
+      // On iOS/Safari playback sometimes starts only after the user's tap.
     }
 
     if (typeof audio.setSinkId !== "function") {
@@ -1807,22 +1712,22 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                 </label>
 
                 {groupCreatorOpen ? (
-                  <form onSubmit={createGroupChat} className="tg-popover mt-2 space-y-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/5">
+                  <form onSubmit={createGroupChat} className="tg-popover tg-dark-panel mt-2 space-y-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg shadow-slate-900/5">
                     <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Users size={17} className="text-[#229ed9]" /> Новый общий чат</div>
-                    <input value={groupTitle} onChange={(event) => setGroupTitle(event.target.value)} placeholder="Название чата" className="tg-input-darkfix w-full rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" maxLength={64} />
-                    <div className="rounded-2xl bg-[#f4f7fb] p-2">
+                    <input value={groupTitle} onChange={(event) => setGroupTitle(event.target.value)} placeholder="Название чата" className="tg-input-darkfix tg-dark-field w-full rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" maxLength={64} />
+                    <div className="tg-dark-soft-panel rounded-2xl bg-[#f4f7fb] p-2">
                       <div className="mb-2 flex flex-wrap gap-1.5">
                         {groupSelectedUsers.map((member) => (
-                          <button key={member.id} type="button" onClick={() => setGroupSelectedUsers((current) => current.filter((item) => item.id !== member.id))} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+                          <button key={member.id} type="button" onClick={() => setGroupSelectedUsers((current) => current.filter((item) => item.id !== member.id))} className="tg-dark-chip rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm">
                             {member.displayName} <span className="text-slate-400">×</span>
                           </button>
                         ))}
                       </div>
-                      <input value={groupMemberSearch} onChange={(event) => setGroupMemberSearch(event.target.value)} placeholder="Найти по нику или @username" className="tg-input-darkfix w-full rounded-xl bg-white px-3 py-2 text-sm outline-none" autoCapitalize="none" />
+                      <input value={groupMemberSearch} onChange={(event) => setGroupMemberSearch(event.target.value)} placeholder="Найти по нику или @username" className="tg-input-darkfix tg-dark-field-strong w-full rounded-xl bg-white px-3 py-2 text-sm outline-none" autoCapitalize="none" />
                       {groupPickResults.length ? (
-                        <div className="mt-2 overflow-hidden rounded-xl bg-white shadow-sm">
+                        <div className="tg-dark-list mt-2 overflow-hidden rounded-xl bg-white shadow-sm">
                           {groupPickResults.map((user) => (
-                            <button key={user.id} type="button" onClick={() => addSelectedGroupUser(user)} className="flex w-full items-center gap-2 border-b border-slate-100 px-2 py-2 text-left last:border-b-0 active:bg-[#eef7fd]">
+                            <button key={user.id} type="button" onClick={() => addSelectedGroupUser(user)} className="tg-dark-list-row flex w-full items-center gap-2 border-b border-slate-100 px-2 py-2 text-left last:border-b-0 active:bg-[#eef7fd]">
                               {user.avatarData ? <img src={user.avatarData} alt="" className="h-8 w-8 rounded-full object-cover" /> : <div className="grid h-8 w-8 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white">{avatarLabel(user.displayName)}</div>}
                               <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{user.displayName}</span><span className="block truncate text-xs text-[#229ed9]">@{user.username}</span></span>
                               <Plus size={16} className="text-[#229ed9]" />
@@ -1831,9 +1736,9 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                         </div>
                       ) : null}
                     </div>
-                    <input value={groupMembers} onChange={(event) => setGroupMembers(event.target.value)} placeholder="Или @username через пробел" className="tg-input-darkfix w-full rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" autoCapitalize="none" />
+                    <input value={groupMembers} onChange={(event) => setGroupMembers(event.target.value)} placeholder="Или @username через пробел" className="tg-input-darkfix tg-dark-field w-full rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" autoCapitalize="none" />
                     <div className="flex gap-2">
-                      <button type="button" onClick={() => setGroupCreatorOpen(false)} className="flex-1 rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600 active:scale-[0.98]">Отмена</button>
+                      <button type="button" onClick={() => setGroupCreatorOpen(false)} className="tg-dark-secondary flex-1 rounded-xl bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600 active:scale-[0.98]">Отмена</button>
                       <button disabled={groupBusy || !groupTitle.trim()} className="flex-1 rounded-xl bg-[#229ed9] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 active:scale-[0.98]">{groupBusy ? "Создаю..." : "Создать"}</button>
                     </div>
                   </form>
@@ -1957,7 +1862,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                   <div className="border-t border-slate-100 px-4 py-3">
                     <p className="mb-2 text-sm font-semibold text-slate-950">Свободные юзернеймы админа</p>
                     <form onSubmit={addAdminAlias} className="flex gap-2">
-                      <input value={aliasInput} onChange={(event) => setAliasInput(event.target.value)} placeholder="например pirogram" className="tg-input-darkfix min-w-0 flex-1 rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" autoCapitalize="none" />
+                      <input value={aliasInput} onChange={(event) => setAliasInput(event.target.value)} placeholder="например pirogram" className="tg-input-darkfix tg-dark-field min-w-0 flex-1 rounded-xl bg-[#eef2f7] px-3 py-2 text-sm outline-none" autoCapitalize="none" />
                       <button className="rounded-xl bg-[#229ed9] px-3 py-2 text-sm font-bold text-white">Добавить</button>
                     </form>
                     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1971,14 +1876,14 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
                   <div className="border-t border-slate-100 px-4 py-3">
                     <p className="mb-2 text-sm font-semibold text-slate-950">Профили пользователей</p>
-                    <label className="flex h-10 items-center gap-2 rounded-xl bg-[#eef2f7] px-3 text-sm text-slate-500">
+                    <label className="tg-dark-field flex h-10 items-center gap-2 rounded-xl bg-[#eef2f7] px-3 text-sm text-slate-500">
                       <Search size={16} />
                       <input value={adminUserSearch} onChange={(event) => setAdminUserSearch(event.target.value)} placeholder="Найти по нику или @username" className="tg-input-darkfix min-w-0 flex-1 bg-transparent outline-none" autoCapitalize="none" />
                     </label>
                     {adminUserResults.length ? (
-                      <div className="mt-2 overflow-hidden rounded-2xl bg-[#f8fbff]">
+                      <div className="tg-dark-list mt-2 overflow-hidden rounded-2xl bg-[#f8fbff]">
                         {adminUserResults.map((user) => (
-                          <button key={user.id} type="button" onClick={() => selectAdminUser(user)} className="flex w-full items-center gap-2 border-b border-slate-100 px-2 py-2 text-left last:border-b-0 active:bg-[#eef7fd]">
+                          <button key={user.id} type="button" onClick={() => selectAdminUser(user)} className="tg-dark-list-row flex w-full items-center gap-2 border-b border-slate-100 px-2 py-2 text-left last:border-b-0 active:bg-[#eef7fd]">
                             {user.avatarData ? <img src={user.avatarData} alt="" className="h-9 w-9 rounded-full object-cover" /> : <div className="grid h-9 w-9 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white">{avatarLabel(user.displayName)}</div>}
                             <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{user.displayName}</span><span className="block truncate text-xs text-[#229ed9]">@{user.username}</span></span>
                             <UserRound size={16} className="text-slate-400" />
@@ -1988,13 +1893,13 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                     ) : null}
 
                     {adminSelectedUser ? (
-                      <div className="mt-3 rounded-2xl bg-[#f4f7fb] p-3">
+                      <div className="tg-dark-soft-panel mt-3 rounded-2xl bg-[#f4f7fb] p-3">
                         <div className="mb-3 flex items-center gap-2">
                           {adminSelectedUser.avatarData ? <img src={adminSelectedUser.avatarData} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="grid h-10 w-10 place-items-center rounded-full bg-[#229ed9] text-sm font-bold text-white">{avatarLabel(adminSelectedUser.displayName)}</div>}
                           <div className="min-w-0"><p className="truncate text-sm font-bold">{adminSelectedUser.displayName}</p><p className="truncate text-xs text-[#229ed9]">@{adminSelectedUser.username}</p></div>
                         </div>
-                        <input value={adminDisplayNameDraft} onChange={(event) => setAdminDisplayNameDraft(event.target.value)} placeholder="Ник" className="tg-input-darkfix mb-2 w-full rounded-xl bg-white px-3 py-2 text-sm outline-none" />
-                        <div className="mb-2 flex items-center gap-2 rounded-xl bg-white px-3 py-2">
+                        <input value={adminDisplayNameDraft} onChange={(event) => setAdminDisplayNameDraft(event.target.value)} placeholder="Ник" className="tg-input-darkfix tg-dark-field-strong mb-2 w-full rounded-xl bg-white px-3 py-2 text-sm outline-none" />
+                        <div className="tg-dark-field-strong mb-2 flex items-center gap-2 rounded-xl bg-white px-3 py-2">
                           <AtSign size={15} className="text-slate-400" />
                           <input value={adminUsernameDraft} onChange={(event) => setAdminUsernameDraft(event.target.value)} placeholder="username" className="tg-input-darkfix min-w-0 flex-1 bg-transparent text-sm outline-none" autoCapitalize="none" />
                         </div>
@@ -2140,7 +2045,6 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                 const showDay = !prev || dayLabel(prev.createdAt) !== dayLabel(message.createdAt);
                 const previousSameSender = !showDay && prev?.senderId === message.senderId;
                 const swipe = swipeState?.id === message.id ? swipeState : null;
-                const swipeDirectionClass = swipe?.direction === "right" ? "is-swiping-right" : swipe?.direction === "left" ? "is-swiping-left" : "";
                 const reactionSummary = summarizeReactions(message.reactions, currentUser.id);
                 return (
                   <div key={message.id} className="tg-message-row" style={{ animationDelay: `${Math.min(index * 16, 160)}ms` }}>
@@ -2153,21 +2057,20 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
                       {!mine ? (
                         message.sender?.avatarData ? <img src={message.sender.avatarData} alt="" className={`h-8 w-8 shrink-0 rounded-full object-cover ${previousSameSender ? "opacity-0" : ""}`} /> : <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white ${previousSameSender ? "opacity-0" : ""}`}>{avatarLabel(message.sender?.displayName || message.sender?.username)}</div>
                       ) : null}
-                      <div className={`tg-message-shell relative max-w-[78%] sm:max-w-[62%] ${swipe ? `is-swiping ${swipeDirectionClass}` : ""}`}> 
-                        <div className={`tg-swipe-reply-backdrop ${swipeDirectionClass} ${swipe?.ready ? "is-ready" : ""}`} style={swipe ? { opacity: Math.min(Math.abs(swipe.dx) / 96, 1) } : undefined} aria-hidden="true" />
-                        <div className={`tg-swipe-reply-icon ${swipeDirectionClass} ${swipe?.ready ? "is-ready" : ""}`} aria-hidden="true">
+                      <div className="tg-message-shell relative max-w-[78%] sm:max-w-[62%]">
+                        <div className={`tg-swipe-reply-icon ${swipe?.ready ? "is-ready" : ""}`} aria-hidden="true">
                           <Reply size={17} />
                         </div>
-                        <div className={`tg-swipe-reply-label ${swipeDirectionClass} ${swipe?.ready ? "is-ready" : ""}`} aria-hidden="true">Ответ</div>
                         {reactionBurst?.id === message.id ? <div className="tg-reaction-burst" aria-hidden="true">{reactionBurst.emoji}</div> : null}
                         <div
                           onPointerDown={(event) => startMessagePointer(event, message)}
                           onPointerMove={(event) => moveMessagePointer(event, message)}
                           onPointerUp={(event) => endMessagePointer(event, message)}
-                          onPointerCancel={clearMessageInteraction}
-                          onContextMenu={(event) => { event.preventDefault(); clearMessageInteraction(); setMessageMenu(message); }}
+                          onPointerCancel={() => { clearMessageGesture(); setSwipeState(null); }}
+                          onPointerLeave={() => { clearMessageGesture(); setSwipeState(null); }}
+                          onContextMenu={(event) => { event.preventDefault(); setMessageMenu(message); }}
                           style={swipe ? { transform: `translateX(${swipe.dx}px)`, transition: "none" } : undefined}
-                          className={`tg-bubble tg-bubble-animated max-w-full touch-pan-y text-[14px] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"} ${previousSameSender ? "tg-bubble-tight" : ""} ${pressedMessageId === message.id ? "is-holding" : ""} ${swipe?.ready ? "is-reply-ready" : ""}`}
+                          className={`tg-bubble tg-bubble-animated max-w-full touch-pan-y text-[14px] ${mine ? "tg-bubble-mine" : "tg-bubble-theirs"} ${previousSameSender ? "tg-bubble-tight" : ""}`}
                         >
                           {!mine && !previousSameSender ? <p className="tg-bubble-author mb-1 text-[11px] font-semibold">{message.sender?.displayName || message.sender?.username || "Pirogram"}</p> : null}
                           {message.replyTo ? (
@@ -2251,8 +2154,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
       {groupInfoOpen && activeChat?.type === "GROUP" ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/35 p-0 backdrop-blur-md sm:items-center sm:p-5" onClick={() => setGroupInfoOpen(false)}>
-          <div className="tg-group-info w-full max-w-md rounded-t-[2rem] bg-white p-4 shadow-2xl sm:rounded-[2rem]" onClick={(event) => event.stopPropagation()}>
-            <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200 sm:hidden" />
+          <div className="tg-group-info tg-dark-panel w-full max-w-md rounded-t-[2rem] bg-white p-4 shadow-2xl sm:rounded-[2rem]" onClick={(event) => event.stopPropagation()}>
+            <div className="tg-dark-handle mx-auto mb-3 h-1.5 w-12 rounded-full bg-slate-200 sm:hidden" />
             <div className="flex items-center justify-between">
               <button onClick={() => setGroupInfoOpen(false)} className="rounded-full px-2 py-1 text-sm font-semibold text-[#229ed9]">Закрыть</button>
               <p className="tg-title text-sm font-bold">Информация</p>
@@ -2269,22 +2172,22 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               <p className="text-sm text-slate-500">{activeChat.memberCount ?? activeChat.members.length} участников</p>
             </div>
 
-            <div className="mt-5 grid grid-cols-4 gap-2 text-center text-[11px] font-semibold text-slate-600">
-              <button onClick={() => void startCall("AUDIO")} className="rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><Phone className="mx-auto mb-1" size={20} />Аудио</button>
-              <button onClick={() => void startCall("VIDEO")} className="rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><Video className="mx-auto mb-1" size={20} />Видео</button>
-              <button onClick={() => void renameGroupChat()} className="rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><Pencil className="mx-auto mb-1" size={20} />Название</button>
-              <button onClick={() => profileAvatarRef.current && setInviteSearch("")} className="rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><UserPlus className="mx-auto mb-1" size={20} />Добавить</button>
+            <div className="mt-5 grid grid-cols-4 gap-2 text-center text-[11px] font-semibold text-slate-600 tg-dark-actions-grid">
+              <button onClick={() => void startCall("AUDIO")} className="tg-dark-action rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><Phone className="mx-auto mb-1" size={20} />Аудио</button>
+              <button onClick={() => void startCall("VIDEO")} className="tg-dark-action rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><Video className="mx-auto mb-1" size={20} />Видео</button>
+              <button onClick={() => void renameGroupChat()} className="tg-dark-action rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><Pencil className="mx-auto mb-1" size={20} />Название</button>
+              <button onClick={() => profileAvatarRef.current && setInviteSearch("")} className="tg-dark-action rounded-2xl bg-[#eef7fd] p-3 text-[#229ed9] active:scale-95"><UserPlus className="mx-auto mb-1" size={20} />Добавить</button>
             </div>
 
-            <div className="mt-4 rounded-2xl bg-[#f4f7fb] p-3">
-              <label className="flex h-10 items-center gap-2 rounded-xl bg-white px-3 text-sm text-slate-500">
+            <div className="tg-dark-soft-panel mt-4 rounded-2xl bg-[#f4f7fb] p-3">
+              <label className="tg-dark-field-strong flex h-10 items-center gap-2 rounded-xl bg-white px-3 text-sm text-slate-500">
                 <Search size={16} />
                 <input value={inviteSearch} onChange={(event) => setInviteSearch(event.target.value)} placeholder="Добавить по нику или @username" className="tg-input-darkfix min-w-0 flex-1 bg-transparent outline-none" autoCapitalize="none" />
               </label>
               {inviteResults.length ? (
-                <div className="mt-2 overflow-hidden rounded-xl bg-white">
+                <div className="tg-dark-list mt-2 overflow-hidden rounded-xl bg-white">
                   {inviteResults.map((user) => (
-                    <button key={user.id} type="button" onClick={() => void inviteUserToActiveGroup(user)} className="flex w-full items-center gap-2 border-b border-slate-100 px-2 py-2 text-left last:border-b-0 active:bg-[#eef7fd]">
+                    <button key={user.id} type="button" onClick={() => void inviteUserToActiveGroup(user)} className="tg-dark-list-row flex w-full items-center gap-2 border-b border-slate-100 px-2 py-2 text-left last:border-b-0 active:bg-[#eef7fd]">
                       {user.avatarData ? <img src={user.avatarData} alt="" className="h-9 w-9 rounded-full object-cover" /> : <div className="grid h-9 w-9 place-items-center rounded-full bg-[#229ed9] text-xs font-bold text-white">{avatarLabel(user.displayName)}</div>}
                       <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{user.displayName}</span><span className="block truncate text-xs text-[#229ed9]">@{user.username}</span></span>
                       <Plus size={16} className="text-[#229ed9]" />
@@ -2294,7 +2197,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               ) : null}
             </div>
 
-            <div className="mt-4 max-h-56 overflow-y-auto rounded-2xl bg-[#f8fbff]">
+            <div className="tg-dark-list mt-4 max-h-56 overflow-y-auto rounded-2xl bg-[#f8fbff]">
               {activeChat.members.map((member) => (
                 <div key={member.id} className="flex items-center gap-3 border-b border-slate-100 px-3 py-2.5 last:border-b-0">
                   {member.avatarData ? <img src={member.avatarData} alt="" className="h-10 w-10 rounded-full object-cover" /> : <div className="grid h-10 w-10 place-items-center rounded-full bg-[#229ed9] text-sm font-bold text-white">{avatarLabel(member.displayName)}</div>}
@@ -2303,7 +2206,7 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               ))}
             </div>
 
-            <button onClick={() => void leaveGroupChat()} className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-500 active:scale-[0.98]"><LogOut size={18} />Выйти из группы</button>
+            <button onClick={() => void leaveGroupChat()} className="tg-dark-danger mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-500 active:scale-[0.98]"><LogOut size={18} />Выйти из группы</button>
           </div>
         </div>
       ) : null}
@@ -2341,11 +2244,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
       ) : null}
 
       {messageMenu ? (
-        <div className="tg-menu-backdrop fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-5 backdrop-blur-md" onClick={() => setMessageMenu(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-5 backdrop-blur-md" onClick={() => setMessageMenu(null)}>
           <div className="tg-message-menu w-full max-w-[330px]" onClick={(event) => event.stopPropagation()}>
-            <div className={`tg-menu-preview-bubble mx-auto mb-3 max-w-[280px] rounded-3xl px-4 py-2.5 text-sm shadow-2xl ${messageMenu.senderId === currentUser.id ? "tg-bubble-mine" : "tg-bubble-theirs"}`}>
-              <p className="line-clamp-2 break-words">{replyPreview(messageMenu)}</p>
-            </div>
             <div className="tg-reaction-menu mx-auto mb-3 flex w-fit items-center gap-2 rounded-full px-2.5 py-2 shadow-2xl">
               {REACTION_EMOJIS.map((emoji) => {
                 const reacted = messageMenu.reactions?.some((reaction) => reaction.userId === currentUser.id && reaction.emoji === emoji);
@@ -2365,7 +2265,8 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
 
             <div className="tg-modal rounded-[1.7rem] p-2.5 shadow-2xl">
               <div className="px-3 pb-2 pt-2 text-center">
-                <p className="tg-title text-sm font-bold">Действия с сообщением</p>
+                <p className="tg-title text-sm font-bold">Сообщение</p>
+                <p className="tg-muted mx-auto mt-1 line-clamp-2 max-w-[240px] text-xs">{replyPreview(messageMenu)}</p>
               </div>
               <div className="grid gap-1">
                 <button onClick={() => { setReplyTo(messageMenu); setMessageMenu(null); }} className="tg-menu-action">
@@ -2413,11 +2314,6 @@ export default function ChatClient({ currentUser }: { currentUser: User }) {
               <div>
                 <p className="tg-title text-lg font-bold">{activeCall.kind === "VIDEO" ? "Видеозвонок" : "Аудиозвонок"}</p>
                 <p className="tg-muted text-xs">{callWorking || isCallConnected ? `Соединение установлено · ${audioRouteStatus}` : callNotice || "Подключение..."}</p>
-                {audioNeedsTap ? (
-                  <button onClick={() => void unlockRemoteAudio()} className="mt-2 rounded-full bg-[#229ed9] px-4 py-2 text-xs font-semibold text-white">
-                    Включить звук
-                  </button>
-                ) : null}
               </div>
               <div className="flex gap-2">
                 <button onClick={toggleMute} title={callMuted ? "Включить микрофон" : "Выключить микрофон"} className={`grid h-11 w-11 place-items-center rounded-full ${callMuted ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-700"}`}><Mic size={18} /></button>
